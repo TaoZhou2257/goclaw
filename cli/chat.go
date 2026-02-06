@@ -1,14 +1,15 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
+	"github.com/chzyer/readline"
 	"github.com/smallnest/dogclaw/goclaw/agent"
 	"github.com/smallnest/dogclaw/goclaw/agent/tools"
 	"github.com/smallnest/dogclaw/goclaw/bus"
@@ -56,7 +57,7 @@ func runChat(cmd *cobra.Command, args []string) {
 	}
 	defer logger.Sync()
 
-	fmt.Println("🤖 goclaw Interactive Chat")
+	fmt.Println("🐾 goclaw Interactive Chat")
 	fmt.Println("Type 'quit' or 'exit' to stop, 'clear' to clear history")
 	fmt.Println()
 
@@ -158,8 +159,20 @@ func runChat(cmd *cobra.Command, args []string) {
 		os.Exit(0)
 	}()
 
-	// 主循环
-	reader := bufio.NewReader(os.Stdin)
+	// 主循环 - 使用 readline 提供更好的输入体验
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "➤ ",
+		HistoryFile:     os.Getenv("HOME") + "/.goclaw/history",
+		HistoryLimit:    1000,
+		AutoComplete:    nil,
+		InterruptPrompt: "^C",
+		EOFPrompt:       "^D",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create readline: %v\n", err)
+		os.Exit(1)
+	}
+	defer rl.Close()
 
 	// 如果开启 debug-prompt，打印完整的 system prompt
 	if chatDebugPrompt {
@@ -172,9 +185,21 @@ func runChat(cmd *cobra.Command, args []string) {
 
 	for {
 		// 读取输入
-		fmt.Print("➤ ")
-		input, err := reader.ReadString('\n')
+		input, err := rl.Readline()
 		if err != nil {
+			if err == readline.ErrInterrupt {
+				if input == "" {
+					// Ctrl-C on empty line - exit
+					fmt.Println("\nGoodbye!")
+					break
+				}
+				// Ctrl-C with input - clear input and continue
+				continue
+			}
+			if err == io.EOF {
+				fmt.Println("\nGoodbye!")
+				break
+			}
 			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
 			continue
 		}

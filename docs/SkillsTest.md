@@ -401,7 +401,7 @@ echo "quit" | /tmp/goclaw chat --debug-prompt 2>&1 | head -100
 
 **预期输出**:
 ```
-🤖 goclaw Interactive Chat
+🐾 goclaw Interactive Chat
 Type 'quit' or 'exit' to stop, 'clear' to clear history
 
 Loaded 13 skills

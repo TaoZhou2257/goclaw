@@ -156,7 +156,7 @@ func (c *TelegramChannel) handleCommand(ctx context.Context, message *telegrambo
 			return err
 		}
 	case "/help":
-		helpText := `🤖 goclaw 命令列表：
+		helpText := `🐾 goclaw 命令列表：
 
 /start - 开始使用
 /help - 显示帮助
