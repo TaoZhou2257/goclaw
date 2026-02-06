@@ -60,12 +60,16 @@ type FeishuChannelConfig struct {
 	AllowedIDs        []string `mapstructure:"allowed_ids" json:"allowed_ids"`
 }
 
-// QQChannelConfig QQ 通道配置
+// QQChannelConfig QQ 通道配置 (QQ 开放平台官方 Bot API)
 type QQChannelConfig struct {
-	Enabled    bool     `mapstructure:"enabled" json:"enabled"`
-	WSURL      string   `mapstructure:"ws_url" json:"ws_url"`
-	AccessToken string   `mapstructure:"access_token" json:"access_token"`
-	AllowedIDs []string `mapstructure:"allowed_ids" json:"allowed_ids"`
+	Enabled     bool     `mapstructure:"enabled" json:"enabled"`
+	AppID       string   `mapstructure:"app_id" json:"app_id"`           // QQ 机器人 AppID
+	AppSecret   string   `mapstructure:"app_secret" json:"app_secret"`   // AppSecret (ClientSecret)
+	AccessToken string   `mapstructure:"access_token" json:"access_token"` // 访问令牌 (自动获取)
+	AllowedIDs  []string `mapstructure:"allowed_ids" json:"allowed_ids"`  // 允许的用户/群ID列表
+
+	// 向后兼容的旧字段 (已废弃)
+	WSURL string `mapstructure:"ws_url" json:"ws_url,omitempty"` // 已废弃: QQ 官方 API 不使用 WebSocket
 }
 
 // WeWorkChannelConfig 企业微信通道配置

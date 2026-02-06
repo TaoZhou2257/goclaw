@@ -27,8 +27,8 @@
     },
     "qq": {
       "enabled": false,
-      "ws_url": "",
-      "access_token": "",
+      "app_id": "",
+      "app_secret": "",
       "allowed_ids": []
     },
     "wework": {
