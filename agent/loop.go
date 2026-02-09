@@ -300,13 +300,21 @@ func (l *Loop) runIteration(ctx context.Context, sess *session.Session) (string,
 					Name:   tc.Name,
 					Params: tc.Params,
 				})
+				logger.Debug("Saving tool call to session",
+					zap.String("tool_call_id", tc.ID),
+					zap.String("tool_name", tc.Name),
+					zap.Any("params", tc.Params))
 			}
-			sess.AddMessage(session.Message{
+			assistantMsg := session.Message{
 				Role:      "assistant",
 				Content:   response.Content,
 				Timestamp: time.Now(),
 				ToolCalls: assistantToolCalls,
-			})
+			}
+			sess.AddMessage(assistantMsg)
+			logger.Debug("Added assistant message with ToolCalls",
+				zap.Int("tool_calls_count", len(assistantToolCalls)),
+				zap.Int("session_messages_count", len(sess.Messages)))
 
 			// 执行工具调用
 			hasNewSkill := false
@@ -315,6 +323,17 @@ func (l *Loop) runIteration(ctx context.Context, sess *session.Session) (string,
 				if err != nil {
 					result = fmt.Sprintf("Error: %v", err)
 				}
+
+				logger.Debug("Tool execution result",
+					zap.String("tool_call_id", tc.ID),
+					zap.String("tool_name", tc.Name),
+					zap.Int("result_length", len(result)),
+					zap.String("result_preview", func() string {
+						if len(result) > 100 {
+							return result[:100] + "..."
+						}
+						return result
+					}()))
 
 				// 检查是否是 use_skill 工具
 				if tc.Name == "use_skill" {
@@ -327,7 +346,7 @@ func (l *Loop) runIteration(ctx context.Context, sess *session.Session) (string,
 				}
 
 				// 添加工具结果到会话
-				sess.AddMessage(session.Message{
+				toolMsg := session.Message{
 					Role:       "tool",
 					Content:    result,
 					Timestamp:  time.Now(),
@@ -335,7 +354,11 @@ func (l *Loop) runIteration(ctx context.Context, sess *session.Session) (string,
 					Metadata: map[string]interface{}{
 						"tool_name": tc.Name,
 					},
-				})
+				}
+				sess.AddMessage(toolMsg)
+				logger.Debug("Added tool result message",
+					zap.String("tool_call_id", tc.ID),
+					zap.Int("session_messages_count", len(sess.Messages)))
 			}
 
 			// 如果加载了新技能，继续迭代让 LLM 获取完整内容

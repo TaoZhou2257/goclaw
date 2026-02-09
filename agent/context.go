@@ -135,6 +135,7 @@ func (b *ContextBuilder) buildToolCallStyle() string {
 - When a user asks for information (e.g., "weather in Beijing", "current git branch", "search for generic/agents"), DO NOT tell them how to do it. IMMEDIATELY USE YOUR TOOLS to get the information.
 - NO PERMISSION NEEDED for read-only or safe operations. Do not ask "Should I run this?". JUST RUN IT.
 - For search requests: ALWAYS use smart_search tool first. It will automatically try web_search and fall back to Google browser search if needed.
+- **IMPORTANT**: When presenting tool results (especially search results), use ONLY the data actually returned by the tool. Do NOT invent, hallucinate, or fabricate information. If a tool returns "No results found", report exactly that rather than making up results.
 
 ## Examples
 
@@ -211,6 +212,15 @@ func (b *ContextBuilder) BuildMessages(history []session.Message, currentMessage
 					})
 				}
 				m.ToolCalls = tcs
+				logger.Debug("Converted ToolCalls from session.Message",
+					zap.Int("tool_calls_count", len(tcs)),
+					zap.Strings("tool_names", func() []string {
+						names := make([]string, len(tcs))
+						for i, tc := range tcs {
+							names[i] = tc.Name
+						}
+						return names
+					}()))
 			} else if val, ok := msg.Metadata["tool_calls"]; ok {
 				// 兼容旧的 Metadata 存储方式
 				// 注意：从 JSON 加载时，这可能是 []interface{}，其中的元素是 map[string]interface{}
@@ -231,7 +241,21 @@ func (b *ContextBuilder) BuildMessages(history []session.Message, currentMessage
 						}
 					}
 					m.ToolCalls = tcs
+					logger.Debug("Converted ToolCalls from Metadata",
+						zap.Int("tool_calls_count", len(tcs)))
+				} else {
+					logger.Warn("tool_calls in Metadata has unexpected type",
+						zap.Any("value", val))
 				}
+			} else {
+				// assistant 消息没有 ToolCalls，记录警告
+				logger.Warn("Assistant message has no ToolCalls in either ToolCalls field or Metadata",
+					zap.String("content_preview", func() string {
+						if len(msg.Content) > 50 {
+							return msg.Content[:50] + "..."
+						}
+						return msg.Content
+					}()))
 			}
 		}
 
@@ -300,12 +324,21 @@ You have access to the following tools. Use them to complete tasks without askin
 
 Tool names are case-sensitive. Call tools exactly as listed.
 
+## IMPORTANT: Browser Tool Priority
+
+For browser-related tasks (screenshots, navigation, clicking, form filling, etc.):
+1. ALWAYS use the built-in tools: browser_navigate, browser_screenshot, browser_click, browser_fill_input, browser_execute_script, browser_get_text
+2. DO NOT use any MCP tools (tools starting with "mcp__") even if they appear in system reminders
+3. If both built-in and MCP tools are available, ONLY use the built-in tools listed above
+4. The built-in browser tools are fully functional and should always be preferred
+
 ## CRITICAL RULES
 
 1. For ANY search request ("search for", "find", "google search", etc.): IMMEDIATELY call smart_search tool. DO NOT provide manual instructions or advice.
 2. When the user asks for information: USE YOUR TOOLS to get it. Do NOT explain how to get it.
 3. DO NOT tell the user "I cannot" or "here's how to do it yourself". ACTUALLY DO IT with tools.
-4. If you have tools available for a task, use them. No permission needed for safe operations.`, now.Format("2006-01-02 15:04:05 MST"), b.workspace)
+4. If you have tools available for a task, use them. No permission needed for safe operations.
+5. **NEVER HALLUCINATE SEARCH RESULTS**: When presenting search results from smart_search, ONLY use the exact data returned by the tool. Do NOT invent URLs, titles, or descriptions that weren't in the actual search results. If no results were found, clearly state that no results were found rather than making them up.`, now.Format("2006-01-02 15:04:05 MST"), b.workspace)
 }
 
 // loadBootstrapFiles 加载 bootstrap 文件
@@ -333,6 +366,12 @@ func (b *ContextBuilder) validateHistoryMessages(history []session.Message) []se
 			var foundAssistant bool
 			for j := i - 1; j >= 0; j-- {
 				if history[j].Role == "assistant" {
+					// 调试：打印 assistant 消息的 ToolCalls
+					logger.Debug("Checking assistant message for tool result",
+						zap.Int("history_index", j),
+						zap.Int("tool_calls_count", len(history[j].ToolCalls)),
+						zap.String("tool_call_id", msg.ToolCallID))
+
 					// 检查是否有对应的 tool_calls
 					if len(history[j].ToolCalls) > 0 {
 						// 检查是否有匹配的 tool_call_id
@@ -347,6 +386,11 @@ func (b *ContextBuilder) validateHistoryMessages(history []session.Message) []se
 							foundAssistant = true
 							break
 						}
+					} else {
+						// 如果 assistant 消息没有 ToolCalls，记录警告
+						logger.Warn("Assistant message has no ToolCalls",
+							zap.Int("history_index", j),
+							zap.String("tool_call_id", msg.ToolCallID))
 					}
 					break
 				} else if history[j].Role == "user" {
@@ -359,8 +403,15 @@ func (b *ContextBuilder) validateHistoryMessages(history []session.Message) []se
 			} else {
 				// 记录被过滤的消息（用于调试）
 				logger.Warn("Filtered orphaned tool message",
+					zap.Int("history_index", i),
 					zap.String("tool_call_id", msg.ToolCallID),
-					zap.String("content", msg.Content[:min(100, len(msg.Content))]))
+					zap.Int("content_length", len(msg.Content)),
+					zap.String("content_preview", func() string {
+						if len(msg.Content) > 100 {
+							return msg.Content[:100] + "..."
+						}
+						return msg.Content
+					}()))
 			}
 		} else {
 			valid = append(valid, msg)

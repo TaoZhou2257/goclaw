@@ -10,8 +10,11 @@ import (
 
 	"github.com/mafredri/cdp"
 	"github.com/mafredri/cdp/devtool"
+	"github.com/mafredri/cdp/protocol/emulation"
+	"github.com/mafredri/cdp/protocol/network"
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/smallnest/dogclaw/goclaw/internal/logger"
+	"go.uber.org/zap"
 )
 
 // BrowserSessionManager 浏览器会话管理器 (使用 Chrome DevTools Protocol)
@@ -163,6 +166,16 @@ func (b *BrowserSessionManager) connect(port int) error {
 	}
 	if err := b.client.Runtime.Enable(ctx); err != nil {
 		return fmt.Errorf("failed to enable Runtime: %w", err)
+	}
+	if err := b.client.Network.Enable(ctx, network.NewEnableArgs()); err != nil {
+		return fmt.Errorf("failed to enable Network: %w", err)
+	}
+
+	// 设置真实的 User-Agent 以避免被检测为自动化工具
+	// 使用最新 Chrome 的 User-Agent
+	userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	if err := b.client.Emulation.SetUserAgentOverride(ctx, emulation.NewSetUserAgentOverrideArgs(userAgent)); err != nil {
+		logger.Warn("Failed to set User-Agent", zap.Error(err))
 	}
 
 	return nil

@@ -184,12 +184,31 @@ func (s *SmartSearch) fallbackToBrowser(ctx context.Context, query string) (stri
 	logger.Info("Page content retrieved", zap.Int("content_length", len(content)), zap.String("frame_id", string(nav.FrameID)))
 
 	// Check if blocked by Google (verify page)
-	if len(content) > 0 && (strings.Contains(content, "unusual traffic") ||
-		strings.Contains(content, "CAPTCHA") ||
-		strings.Contains(content, "verify you are human") ||
-		strings.Contains(content, "I'm not a robot")) {
-		logger.Warn("Google detected automated traffic, showing CAPTCHA page")
-		return fmt.Sprintf("Google Search for: %s\n\n[Blocked by Google: CAPTCHA or anti-bot verification required. The search page shows 'unusual traffic' or 'I'm not a robot'.]\n\nNote: You may need to wait a moment and try again.", query), nil
+	// Google 显示 CAPTCHA 页面的常见特征
+	captchaKeywords := []string{
+		"unusual traffic",
+		"CAPTCHA",
+		"verify you are human",
+		"I'm not a robot",
+		"若要继续",
+		"系统检测到",
+		"异常流量",
+		"请启用 JavaScript",
+	}
+
+	blocked := false
+	for _, keyword := range captchaKeywords {
+		if strings.Contains(content, keyword) {
+			blocked = true
+			logger.Warn("Google detected automated traffic",
+				zap.String("keyword", keyword),
+				zap.Int("content_length", len(content)))
+			break
+		}
+	}
+
+	if blocked {
+		return fmt.Sprintf("Google Search for: %s\n\n[⚠️ BLOCKED BY GOOGLE: CAPTCHA/Anti-bot verification required]\n\nGoogle has detected automated traffic from your IP address and requires human verification (CAPTCHA).\n\nPossible solutions:\n1. Wait 10-30 minutes and try again\n2. Try a different network (switch from VPN if using one)\n3. Use alternative search engine\n\nThe search page is showing a verification page instead of results.", query), nil
 	}
 
 	// Extract search results
@@ -200,11 +219,20 @@ func (s *SmartSearch) fallbackToBrowser(ctx context.Context, query string) (stri
 	if searchResults == "" {
 		// Return partial content for debugging
 		preview := content
-		if len(preview) > 500 {
-			preview = preview[:500] + "..."
+		if len(preview) > 1000 {
+			preview = preview[:1000] + "..."
 		}
 		return fmt.Sprintf("Google search completed for: %s\n\nNo results could be extracted. Page preview:\n%s\n\nThe page structure may have changed or search was blocked.\n\nTry using browser_navigate and browser_get_text tools directly.", query, preview), nil
 	}
+
+	// Debug: log the actual extracted results
+	logger.Info("Extracted search results preview",
+		zap.String("preview", func() string {
+			if len(searchResults) > 500 {
+				return searchResults[:500] + "..."
+			}
+			return searchResults
+		}()))
 
 	return fmt.Sprintf("Google Search Results for: %s\n\n%s", query, searchResults), nil
 }
@@ -274,7 +302,14 @@ func (s *SmartSearch) extractGoogleSearchResults(pageText string) string {
 	}
 
 	if len(results) == 0 {
-		return ""
+		// No valid results found - return a clear message
+		// Check if page contains "No results found" or similar
+		if strings.Contains(text, "No results found") ||
+			strings.Contains(text, "did not match any documents") ||
+			strings.Contains(text, "Your search -") && strings.Contains(text, "- did not match") {
+			return "No results found for this search query."
+		}
+		return "" // No results extracted, page structure may have changed
 	}
 
 	return strings.Join(results, "\n\n---\n\n")
@@ -345,8 +380,46 @@ func (s *SmartSearch) isValidResult(result string) bool {
 		return false
 	}
 
-	// Preferably contains URL or description
-	return strings.Contains(result, "URL:") || strings.Contains(result, "Description:")
+	// Must contain a valid URL (http:// or https://)
+	if !strings.Contains(result, "URL:") {
+		return false
+	}
+
+	// Extract URL part and validate
+	urlPart := ""
+	if idx := strings.Index(result, "URL:"); idx != -1 {
+		remaining := result[idx+4:]
+		// URL goes until next Description or end
+		if descIdx := strings.Index(remaining, "\nDescription:"); descIdx != -1 {
+			urlPart = strings.TrimSpace(remaining[:descIdx])
+		} else {
+			urlPart = strings.TrimSpace(remaining)
+		}
+	}
+
+	// URL must be a valid format
+	if urlPart == "" {
+		return false
+	}
+
+	// Skip if URL doesn't start with http
+	if !strings.HasPrefix(urlPart, "http://") && !strings.HasPrefix(urlPart, "https://") {
+		return false
+	}
+
+	// Skip if URL is too short (invalid)
+	if len(urlPart) < 10 {
+		return false
+	}
+
+	// Skip obvious Google internal URLs
+	if strings.Contains(urlPart, "google.com/search") ||
+		strings.Contains(urlPart, "google.com/url") ||
+		strings.Contains(urlPart, "google.com/preferences") {
+		return false
+	}
+
+	return true
 }
 
 // GetTool Get smart search tool
