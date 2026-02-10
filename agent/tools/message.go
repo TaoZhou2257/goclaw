@@ -3,9 +3,12 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/smallnest/dogclaw/goclaw/bus"
+	"github.com/smallnest/dogclaw/goclaw/internal/logger"
+	"go.uber.org/zap"
 )
 
 // MessageTool 消息工具
@@ -33,6 +36,14 @@ func (t *MessageTool) SendMessage(ctx context.Context, params map[string]interfa
 	content, ok := params["content"].(string)
 	if !ok {
 		return "", fmt.Errorf("content parameter is required")
+	}
+
+	// 过滤中间态错误和拒绝消息
+	if isFilteredContent(content) {
+		logger.Warn("Message tool send was filtered out",
+			zap.Int("content_length", len(content)))
+		// 返回成功但不实际发送消息
+		return "Message was filtered and not sent", nil
 	}
 
 	// 获取目标通道
@@ -63,6 +74,66 @@ func (t *MessageTool) SendMessage(ctx context.Context, params map[string]interfa
 	}
 
 	return fmt.Sprintf("Message sent to %s:%s", channel, chatID), nil
+}
+
+// isFilteredContent 检查内容是否应该被过滤
+func isFilteredContent(content string) bool {
+	if content == "" {
+		return false
+	}
+
+	// 检测常见的 LLM 拒绝消息模式（中英文）
+	rejectionPatterns := []string{
+		"作为一个人工智能语言模型",
+		"作为AI语言模型",
+		"作为一个AI",
+		"作为一个人工智能",
+		"我还没有学习",
+		"我还没学习",
+		"我无法回答",
+		"我不能回答",
+		"I'm sorry, but I cannot",
+		"As an AI language model",
+		"As an AI assistant",
+		"I cannot answer",
+		"I'm not able to answer",
+		"I cannot provide",
+	}
+
+	contentLower := strings.ToLower(content)
+	for _, pattern := range rejectionPatterns {
+		if strings.Contains(content, pattern) || strings.Contains(contentLower, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	// 检测中间态错误消息（包含 "An unknown error occurred" 的）
+	if strings.Contains(content, "An unknown error occurred") {
+		return true
+	}
+
+	// 检测工具执行失败的消息（这些应该被 LLM 处理后返回更好的答案）
+	if strings.Contains(content, "工具执行失败") ||
+		strings.Contains(content, "Tool execution failed") ||
+		(strings.Contains(content, "## ") && strings.Contains(content, "**错误**")) {
+		return true
+	}
+
+	// 检测纯技术错误消息
+	techErrorPatterns := []string{
+		"context deadline exceeded",
+		"context canceled",
+		"connection refused",
+		"network error",
+	}
+
+	for _, pattern := range techErrorPatterns {
+		if strings.Contains(contentLower, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetTools 获取所有消息工具

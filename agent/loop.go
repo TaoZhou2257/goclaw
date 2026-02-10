@@ -183,7 +183,7 @@ func (l *Loop) processMessage(ctx context.Context, msg *bus.InboundMessage) {
 		}
 
 		if err != nil {
-			// 格式化错误消息
+			// 格式化错误消息 - 这是最终确定失败才发送给用户
 			userError := FormatErrorForUser(err.Error())
 			_ = l.bus.PublishOutbound(ctx, &bus.OutboundMessage{
 				Channel:   msg.Channel,
@@ -195,15 +195,22 @@ func (l *Loop) processMessage(ctx context.Context, msg *bus.InboundMessage) {
 		}
 	}
 
+	// 过滤和验证响应内容，确保不会发送中间态或拒绝消息
+	filteredResponse := l.filterResponse(response)
+	if filteredResponse == "" {
+		logger.Warn("Response was filtered out, sending fallback message")
+		filteredResponse = "抱歉，我无法处理您的请求。请尝试重新表述您的问题或联系管理员。"
+	}
+
 	// 发送响应
 	logger.Info("Publishing outbound message",
 		zap.String("channel", msg.Channel),
 		zap.String("chat_id", msg.ChatID),
-		zap.Int("content_length", len(response)))
+		zap.Int("content_length", len(filteredResponse)))
 	err = l.bus.PublishOutbound(ctx, &bus.OutboundMessage{
 		Channel:   msg.Channel,
 		ChatID:    msg.ChatID,
-		Content:   response,
+		Content:   filteredResponse,
 		Timestamp: time.Now(),
 	})
 	if err != nil {
@@ -706,4 +713,72 @@ func (l *Loop) generateSummary(ctx context.Context, msg *bus.InboundMessage) str
 	// 简单实现：直接返回内容
 	// 实际应该调用 LLM 生成更友好的总结
 	return fmt.Sprintf("任务完成：%s", msg.Content)
+}
+
+// filterResponse 过滤响应内容，移除中间态错误和拒绝消息
+func (l *Loop) filterResponse(response string) string {
+	if response == "" {
+		return ""
+	}
+
+	// 检测常见的 LLM 拒绝消息模式（中英文）
+	rejectionPatterns := []string{
+		"作为一个人工智能语言模型",
+		"作为AI语言模型",
+		"作为一个AI",
+		"作为一个人工智能",
+		"我还没有学习",
+		"我还没学习",
+		"我无法回答",
+		"我不能回答",
+		"I'm sorry, but I cannot",
+		"As an AI language model",
+		"As an AI assistant",
+		"I cannot answer",
+		"I'm not able to answer",
+		"I cannot provide",
+	}
+
+	responseLower := strings.ToLower(response)
+	for _, pattern := range rejectionPatterns {
+		if strings.Contains(response, pattern) || strings.Contains(responseLower, strings.ToLower(pattern)) {
+			logger.Warn("Response contains rejection message, filtering it out",
+				zap.String("pattern", pattern),
+				zap.Int("response_length", len(response)))
+			return ""
+		}
+	}
+
+	// 检测中间态错误消息（包含 "An unknown error occurred" 的）
+	if strings.Contains(response, "An unknown error occurred") {
+		logger.Warn("Response contains intermediate error message, filtering it out")
+		return ""
+	}
+
+	// 检测工具执行失败的消息（这些应该被 LLM 处理后返回更好的答案）
+	if strings.Contains(response, "工具执行失败") ||
+		strings.Contains(response, "Tool execution failed") ||
+		strings.Contains(response, "## ") && strings.Contains(response, "**错误**") {
+		logger.Warn("Response contains tool error message, filtering it out")
+		return ""
+	}
+
+	// 检测纯技术错误消息
+	techErrorPatterns := []string{
+		"context deadline exceeded",
+		"context canceled",
+		"timeout",
+		"connection refused",
+		"network error",
+	}
+
+	for _, pattern := range techErrorPatterns {
+		if strings.Contains(responseLower, pattern) {
+			logger.Warn("Response contains technical error message, filtering it out",
+				zap.String("pattern", pattern))
+			return ""
+		}
+	}
+
+	return response
 }

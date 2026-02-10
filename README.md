@@ -2,6 +2,8 @@
 
 Go 语言版本的 openclaw。
 
+![](docs/goclaw.png)
+
 ## 功能特性
 
 - 🛠️ **完整的工具系统**：FileSystem、Shell、Web、Message、Spawn，支持安全沙箱与权限控制。
