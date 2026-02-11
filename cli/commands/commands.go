@@ -42,6 +42,7 @@ type CommandRegistry struct {
 	homeDir     string
 	menuMode    bool // 是否在菜单选择模式
 	sessionMgr  *session.Manager
+	stopped     bool // 停止标志，用于中止正在运行的 agent
 }
 
 // NewCommandRegistry 创建命令注册表
@@ -63,6 +64,21 @@ func (r *CommandRegistry) SetSessionManager(mgr *session.Manager) {
 // GetSessionManager 获取会话管理器
 func (r *CommandRegistry) GetSessionManager() *session.Manager {
 	return r.sessionMgr
+}
+
+// Stop 设置停止标志，用于中止正在运行的 agent
+func (r *CommandRegistry) Stop() {
+	r.stopped = true
+}
+
+// ResetStop 重置停止标志
+func (r *CommandRegistry) ResetStop() {
+	r.stopped = false
+}
+
+// IsStopped 检查是否被停止
+func (r *CommandRegistry) IsStopped() bool {
+	return r.stopped
 }
 
 // registerBuiltInCommands 注册内置命令
@@ -224,6 +240,17 @@ func (r *CommandRegistry) registerBuiltInCommands() {
 		Description: "Show session and gateway status",
 		Handler: func(args []string) (string, bool) {
 			return r.handleStatus(args), false
+		},
+	})
+
+	// /stop - 停止当前运行的 agent
+	r.Register(&Command{
+		Name:        "stop",
+		Usage:       "/stop",
+		Description: "Stop the current agent run",
+		Handler: func(args []string) (string, bool) {
+			r.Stop()
+			return "⚙️ Agent run stopped.", false
 		},
 	})
 }
@@ -615,7 +642,7 @@ func (r *CommandRegistry) NewCompleter() readline.AutoCompleter {
 // GetCommandPrompt 获取命令提示信息
 func (r *CommandRegistry) GetCommandPrompt() string {
 	var sb strings.Builder
-	sb.WriteString("Available commands: /quit /exit /clear /clear-sessions /help /status /read /cd /pwd /ls (Tab to show menu)")
+	sb.WriteString("Available commands: /quit /exit /clear /clear-sessions /help /status /stop /read /cd /pwd /ls (Tab to show menu)")
 	return sb.String()
 }
 

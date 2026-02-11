@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/chzyer/readline"
@@ -170,7 +172,11 @@ func runTUI(cmd *cobra.Command, args []string) {
 	var sess *session.Session
 	sessionKey := tuiSession
 	if sessionKey == "" {
-		sessionKey = "tui:" + strconv.FormatInt(time.Now().Unix(), 10)
+		// Try to find the most recently updated tui session
+		sessionKey = findMostRecentTUISession(sessionMgr)
+		if sessionKey == "" {
+			sessionKey = "tui:" + strconv.FormatInt(time.Now().Unix(), 10)
+		}
 	}
 
 	sess, err = sessionMgr.GetOrCreate(sessionKey)
@@ -188,6 +194,10 @@ func runTUI(cmd *cobra.Command, args []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Create command registry for slash commands
+	cmdRegistry := NewCommandRegistry()
+	cmdRegistry.SetSessionManager(sessionMgr)
+
 	// Handle message flag
 	if tuiMessage != "" {
 		fmt.Printf("Sending message: %s\n", tuiMessage)
@@ -200,7 +210,7 @@ func runTUI(cmd *cobra.Command, args []string) {
 		msgCtx, msgCancel := context.WithTimeout(ctx, timeout)
 		defer msgCancel()
 
-		response, err := runAgentIteration(msgCtx, sess, provider, contextBuilder, toolRegistry, skillsLoader, cfg.Agents.Defaults.MaxIterations)
+		response, err := runAgentIteration(msgCtx, sess, provider, contextBuilder, toolRegistry, skillsLoader, cfg.Agents.Defaults.MaxIterations, cmdRegistry)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		} else {
@@ -223,11 +233,6 @@ func runTUI(cmd *cobra.Command, args []string) {
 	fmt.Println()
 	fmt.Println("Arrow keys: ↑/↓ for history, ←/→ for edit")
 	fmt.Println()
-
-	// Import the chat command registry for slash commands
-	// nolint:typecheck
-	cmdRegistry := NewCommandRegistry()
-	cmdRegistry.SetSessionManager(sessionMgr)
 
 	// Create persistent readline instance for history navigation
 	rl, err := input.NewReadline("➤ ")
@@ -288,7 +293,7 @@ func runTUI(cmd *cobra.Command, args []string) {
 		timeout := time.Duration(tuiTimeoutMs) * time.Millisecond
 		msgCtx, msgCancel := context.WithTimeout(ctx, timeout)
 
-		response, err := runAgentIteration(msgCtx, sess, provider, contextBuilder, toolRegistry, skillsLoader, cfg.Agents.Defaults.MaxIterations)
+		response, err := runAgentIteration(msgCtx, sess, provider, contextBuilder, toolRegistry, skillsLoader, cfg.Agents.Defaults.MaxIterations, cmdRegistry)
 		msgCancel()
 
 		if err != nil {
@@ -316,9 +321,15 @@ func runAgentIteration(
 	toolRegistry *tools.Registry,
 	skillsLoader *agent.SkillsLoader,
 	maxIterations int,
+	cmdRegistry *CommandRegistry,
 ) (string, error) {
 	iteration := 0
 	var lastResponse string
+
+	// 重置停止标志
+	if cmdRegistry != nil {
+		cmdRegistry.ResetStop()
+	}
 
 	// Get loaded skills
 	loadedSkills := getLoadedSkills(sess)
@@ -328,6 +339,12 @@ func runAgentIteration(
 		logger.Debug("Agent iteration",
 			zap.Int("iteration", iteration),
 			zap.Int("max_iterations", maxIterations))
+
+		// 检查停止标志
+		if cmdRegistry != nil && cmdRegistry.IsStopped() {
+			logger.Info("Agent run stopped by /stop command")
+			return lastResponse, nil
+		}
 
 		// Get available skills
 		var skills []*agent.Skill
@@ -483,4 +500,49 @@ func getUserInputHistory(sess *session.Session) []string {
 	}
 
 	return userInputs
+}
+
+// findMostRecentTUISession finds the most recently updated tui session
+func findMostRecentTUISession(mgr *session.Manager) string {
+	keys, err := mgr.List()
+	if err != nil {
+		return ""
+	}
+
+	// Filter and collect tui sessions with their update time
+	type sessionInfo struct {
+		key       string
+		updatedAt time.Time
+	}
+
+	var tuiSessions []sessionInfo
+	for _, key := range keys {
+		// Only consider sessions starting with "tui:" or "tui_"
+		if !strings.HasPrefix(key, "tui:") && !strings.HasPrefix(key, "tui_") {
+			continue
+		}
+
+		// Load the session to get its update time
+		sess, err := mgr.GetOrCreate(key)
+		if err != nil {
+			continue
+		}
+
+		tuiSessions = append(tuiSessions, sessionInfo{
+			key:       key,
+			updatedAt: sess.UpdatedAt,
+		})
+	}
+
+	// If no tui sessions found, return empty
+	if len(tuiSessions) == 0 {
+		return ""
+	}
+
+	// Sort by updated time (most recent first)
+	sort.Slice(tuiSessions, func(i, j int) bool {
+		return tuiSessions[i].updatedAt.After(tuiSessions[j].updatedAt)
+	})
+
+	return tuiSessions[0].key
 }
