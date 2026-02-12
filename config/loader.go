@@ -226,9 +226,9 @@ func validateChannels(cfg *Config) error {
 		if cfg.Channels.Telegram.Token == "" {
 			return fmt.Errorf("telegram token is required when enabled")
 		}
-		if !strings.HasPrefix(cfg.Channels.Telegram.Token, "bot") {
-			return fmt.Errorf("telegram token must start with 'bot'")
-		}
+		// Telegram Bot Token format: <bot_id>:<api_key>
+		// Example: 123456789:ABCDEF1234ghIkl-zyx57W2v1u123ew11
+		// The token will be validated by the Telegram API when connecting
 	}
 
 	// WhatsApp
