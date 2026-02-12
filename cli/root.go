@@ -71,6 +71,7 @@ func init() {
 	rootCmd.AddCommand(agentsCmd)
 	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(sessionsCmd)
+	rootCmd.AddCommand(onboardCmd)
 
 	// Register memory and logs commands from commands package
 	// Note: skills command is already registered in cli/skills.go
