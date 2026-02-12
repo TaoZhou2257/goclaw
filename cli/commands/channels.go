@@ -135,17 +135,36 @@ func getChannelsFromGateway(timeout int) []ChannelInfo {
 	var channels []ChannelInfo
 
 	for _, port := range ports {
-		// Use the gateway's HTTP health endpoint to check if it's running
-		// Note: The actual channel list comes from the WebSocket interface
-		url := fmt.Sprintf("http://localhost:%d/health", port)
+		// Try to get channels from the HTTP API
+		url := fmt.Sprintf("http://localhost:%d/api/channels", port)
 		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			// Gateway is running, so we can show configured channels
-			// The actual channel status would need to come from the gateway's internal state
-			// For now, we'll return empty and let the text output show all known channels
-			break
+		if err != nil {
+			continue
 		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		var result struct {
+			Channels []map[string]interface{} `json:"channels"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			continue
+		}
+
+		// Parse channels
+		for _, ch := range result.Channels {
+			name, _ := ch["name"].(string)
+			enabled, _ := ch["enabled"].(bool)
+			channels = append(channels, ChannelInfo{
+				Name:    name,
+				Enabled: enabled,
+			})
+		}
+		break
 	}
 
 	return channels
@@ -161,30 +180,72 @@ func getChannelStatusFromGateway(channelName string, timeout int) map[string]int
 	ports := []int{18789, 18790, 18890}
 
 	for _, port := range ports {
+		// If channel name is specified, get specific channel status
+		// Otherwise, get all channels
+		url := fmt.Sprintf("http://localhost:%d/api/channels", port)
+		if channelName != "" {
+			url += "?channel=" + channelName
+		}
+
+		resp, err := client.Get(url)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// Fall back to health check
+			break
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+
+		if channelName != "" {
+			// Specific channel status
+			var status map[string]interface{}
+			if err := json.Unmarshal(body, &status); err != nil {
+				continue
+			}
+			status["online"] = true
+			return status
+		} else {
+			// All channels
+			var result struct {
+				Channels []map[string]interface{} `json:"channels"`
+				Count    int                       `json:"count"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil {
+				continue
+			}
+			return map[string]interface{}{
+				"online":   true,
+				"channels": result.Channels,
+				"count":    result.Count,
+			}
+		}
+	}
+
+	// Gateway is offline or endpoint not available
+	// Try health check as fallback
+	for _, port := range ports {
 		url := fmt.Sprintf("http://localhost:%d/health", port)
 		resp, err := client.Get(url)
 		if err == nil {
 			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			var health map[string]interface{}
-			_ = json.Unmarshal(body, &health)
-
-			// Gateway is online
 			return map[string]interface{}{
-				"online":      true,
-				"gateway_url": url,
-				"channel":     channelName,
-				"status":      "available",
+				"online":  true,
+				"channel": channelName,
+				"message": "Channel API not available, but gateway is online",
 			}
 		}
 	}
 
 	// Gateway is offline
 	return map[string]interface{}{
-		"online":      false,
-		"channel":     channelName,
-		"status":      "unavailable",
-		"message":     "Gateway is not running. Start with 'goclaw start' or 'goclaw gateway run'",
+		"online":  false,
+		"channel": channelName,
+		"status":  "unavailable",
+		"message": "Gateway is not running. Start with 'goclaw start' or 'goclaw gateway run'",
 	}
 }
 
@@ -227,7 +288,22 @@ func outputChannelsText(activeChannels []ChannelInfo, allChannels []ChannelInfo)
 		fmt.Println("Gateway: Offline (start with 'goclaw start')")
 	}
 
-	fmt.Println("\nAvailable Channels:")
+	// Show configured channels
+	if len(activeChannels) > 0 {
+		fmt.Println("\nConfigured Channels:")
+		for _, ch := range activeChannels {
+			if ch.Enabled {
+				fmt.Printf("  - %s (enabled)\n", ch.Name)
+			} else {
+				fmt.Printf("  - %s (disabled)\n", ch.Name)
+			}
+		}
+	} else {
+		fmt.Println("\nConfigured Channels: None")
+	}
+
+	// Show all available channels
+	fmt.Println("\nSupported Channels:")
 	for _, ch := range allChannels {
 		fmt.Printf("  - %s\n", ch.Name)
 	}
@@ -260,10 +336,28 @@ func outputChannelStatusText(channelName string, status map[string]interface{}) 
 
 	if online {
 		fmt.Println("Gateway: Online")
-		if url, ok := status["gateway_url"].(string); ok {
-			fmt.Printf("URL:     %s\n", url)
+
+		// Show specific channel status if available
+		if name, ok := status["name"].(string); ok {
+			enabled, _ := status["enabled"].(bool)
+			fmt.Printf("Name:    %s\n", name)
+			fmt.Printf("Enabled: %v\n", enabled)
+		} else if msg, ok := status["message"].(string); ok {
+			fmt.Println("Message:", msg)
+		} else if channelName != "" {
+			fmt.Printf("Status:  %s not configured or not running\n", channelName)
+		} else {
+			// Show all channels
+			if channels, ok := status["channels"].([]map[string]interface{}); ok {
+				count, _ := status["count"].(int)
+				fmt.Printf("Configured Channels (%d):\n", count)
+				for _, ch := range channels {
+					name, _ := ch["name"].(string)
+					enabled, _ := ch["enabled"].(bool)
+					fmt.Printf("  - %s (enabled: %v)\n", name, enabled)
+				}
+			}
 		}
-		fmt.Println("Status:  Available")
 	} else {
 		fmt.Println("Gateway: Offline")
 		fmt.Println("Status:  Unavailable")

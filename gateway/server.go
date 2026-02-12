@@ -137,6 +137,9 @@ func (s *Server) startHTTPServer(ctx context.Context) error {
 	// 健康检查端点
 	mux.HandleFunc("/health", s.handleHealth)
 
+	// Channels API 端点
+	mux.HandleFunc("/api/channels", s.handleChannelsAPI)
+
 	// 飞书 webhook 端点
 	mux.HandleFunc("/webhook/feishu", s.handleFeishuWebhook)
 
@@ -175,6 +178,9 @@ func (s *Server) startWebSocketServer(ctx context.Context) error {
 
 	// 健康检查端点
 	mux.HandleFunc("/health", s.handleHealth)
+
+	// Channels API 端点
+	mux.HandleFunc("/api/channels", s.handleChannelsAPI)
 
 	// 创建 WebSocket 服务器
 	s.wsServer = &http.Server{
@@ -610,6 +616,48 @@ func (c *Connection) heartbeat() {
 			return
 		}
 		c.mu.Unlock()
+	}
+}
+
+// handleChannelsAPI 处理 channels API 请求
+func (s *Server) handleChannelsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 获取查询参数
+	channelName := r.URL.Query().Get("channel")
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if channelName != "" {
+		// 获取特定 channel 的状态
+		status, err := s.channelMgr.Status(channelName)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": err.Error(),
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(status)
+	} else {
+		// 获取所有 channels 列表和状态
+		channelNames := s.channelMgr.List()
+		channels := make([]map[string]interface{}, 0, len(channelNames))
+
+		for _, name := range channelNames {
+			status, _ := s.channelMgr.Status(name)
+			channels = append(channels, status)
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"channels": channels,
+			"count":    len(channels),
+		})
 	}
 }
 
