@@ -13,6 +13,7 @@ type Config struct {
 	Gateway   GatewayConfig   `mapstructure:"gateway" json:"gateway"`
 	Tools     ToolsConfig     `mapstructure:"tools" json:"tools"`
 	Approvals ApprovalsConfig `mapstructure:"approvals" json:"approvals"`
+	Memory    MemoryConfig    `mapstructure:"memory" json:"memory"`
 	// Skills configuration (map[string]interface{} to be parsed by skills package)
 	Skills map[string]interface{} `mapstructure:"skills" json:"skills"`
 }
@@ -226,5 +227,60 @@ type BrowserToolConfig struct {
 type ApprovalsConfig struct {
 	Behavior  string   `mapstructure:"behavior" json:"behavior"`   // auto, manual, prompt
 	Allowlist []string `mapstructure:"allowlist" json:"allowlist"` // 工具允许列表
+}
+
+// MemoryConfig 记忆配置
+type MemoryConfig struct {
+	Backend string             `mapstructure:"backend" json:"backend"` // "builtin" | "qmd"
+	Builtin BuiltinMemoryConfig `mapstructure:"builtin" json:"builtin"`
+	QMD     QMDConfig           `mapstructure:"qmd" json:"qmd"`
+}
+
+// BuiltinMemoryConfig 内置 SQLite 记忆配置
+type BuiltinMemoryConfig struct {
+	Enabled     bool   `mapstructure:"enabled" json:"enabled"`
+	DatabasePath string `mapstructure:"database_path" json:"database_path"`
+	AutoIndex   bool   `mapstructure:"auto_index" json:"auto_index"`
+}
+
+// QMDConfig QMD 记忆配置
+type QMDConfig struct {
+	Command        string   `mapstructure:"command" json:"command"`        // "qmd"
+	Enabled        bool     `mapstructure:"enabled" json:"enabled"`        // 默认 false（需显式启用）
+	IncludeDefault bool     `mapstructure:"include_default" json:"include_default"` // 是否索引默认记忆文件
+	Paths          []QMDPath `mapstructure:"paths" json:"paths"`          // 额外索引路径
+	Sessions       QMDSessions `mapstructure:"sessions" json:"sessions"`  // 会话索引配置
+	Update         QMDUpdate   `mapstructure:"update" json:"update"`      // 更新配置
+	Limits         QMDLimits   `mapstructure:"limits" json:"limits"`      // 搜索限制
+}
+
+// QMDPath QMD 索引路径配置
+type QMDPath struct {
+	Name    string `mapstructure:"name" json:"name"`
+	Path    string `mapstructure:"path" json:"path"`
+	Pattern string `mapstructure:"pattern" json:"pattern"` // 如 "**/*.md"
+}
+
+// QMDSessions QMD 会话索引配置
+type QMDSessions struct {
+	Enabled       bool `mapstructure:"enabled" json:"enabled"`
+	ExportDir     string `mapstructure:"export_dir" json:"export_dir"`
+	RetentionDays int  `mapstructure:"retention_days" json:"retention_days"` // 默认 30
+}
+
+// QMDUpdate QMD 更新配置
+type QMDUpdate struct {
+	Interval        time.Duration `mapstructure:"interval" json:"interval"`          // 默认 5m
+	OnBoot          bool          `mapstructure:"on_boot" json:"on_boot"`            // 默认 true
+	EmbedInterval   time.Duration `mapstructure:"embed_interval" json:"embed_interval"` // 默认 60m
+	CommandTimeout  time.Duration `mapstructure:"command_timeout" json:"command_timeout"` // 默认 30s
+	UpdateTimeout   time.Duration `mapstructure:"update_timeout" json:"update_timeout"`   // 默认 120s
+}
+
+// QMDLimits QMD 搜索限制配置
+type QMDLimits struct {
+	MaxResults     int `mapstructure:"max_results" json:"max_results"`         // 默认 6
+	MaxSnippetChars int `mapstructure:"max_snippet_chars" json:"max_snippet_chars"` // 默认 700
+	TimeoutMs      int `mapstructure:"timeout_ms" json:"timeout_ms"`          // 默认 4000
 }
 

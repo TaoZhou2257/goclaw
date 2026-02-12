@@ -10,6 +10,7 @@ import (
 
 	"github.com/smallnest/goclaw/config"
 	"github.com/smallnest/goclaw/memory"
+	"github.com/smallnest/goclaw/memory/qmd"
 	"github.com/spf13/cobra"
 )
 
@@ -17,14 +18,14 @@ import (
 var MemoryCmd = &cobra.Command{
 	Use:   "memory",
 	Short: "Manage goclaw memory",
-	Long:  `View status, index, and search memory stores.`,
+	Long:  `View status, index, and search memory stores. Supports builtin and QMD backends.`,
 }
 
 // memoryStatusCmd 显示记忆状态
 var memoryStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show memory index statistics",
-	Long:  `Display statistics about the memory store including total entries, sources, and types.`,
+	Long:  `Display statistics about the memory store including backend type, collections, and documents.`,
 	Run:   runMemoryStatus,
 }
 
@@ -32,7 +33,7 @@ var memoryStatusCmd = &cobra.Command{
 var memoryIndexCmd = &cobra.Command{
 	Use:   "index",
 	Short: "Reindex memory files",
-	Long:  `Rebuild the memory index from memory files (MEMORY.md and daily notes).`,
+	Long:  `Rebuild the memory index from configured sources.`,
 	Run:   runMemoryIndex,
 }
 
@@ -40,147 +41,247 @@ var memoryIndexCmd = &cobra.Command{
 var memorySearchCmd = &cobra.Command{
 	Use:   "search <query>",
 	Short: "Semantic search over memory",
-	Long:  `Perform semantic search over stored memories using vector embeddings.`,
+	Long:  `Perform semantic search over stored memories using the configured backend.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runMemorySearch,
+}
+
+// memoryBackendCmd 查看当前后端
+var memoryBackendCmd = &cobra.Command{
+	Use:   "backend",
+	Short: "Show current memory backend",
+	Long:  `Display the current memory backend configuration.`,
+	Run:   runMemoryBackend,
 }
 
 var (
 	memorySearchLimit    int
 	memorySearchMinScore float64
 	memorySearchJSON     bool
+	memoryForceBuiltin   bool
 )
 
 func init() {
 	MemoryCmd.AddCommand(memoryStatusCmd)
 	MemoryCmd.AddCommand(memoryIndexCmd)
 	MemoryCmd.AddCommand(memorySearchCmd)
+	MemoryCmd.AddCommand(memoryBackendCmd)
 
 	memorySearchCmd.Flags().IntVarP(&memorySearchLimit, "limit", "n", 10, "Maximum number of results")
 	memorySearchCmd.Flags().Float64Var(&memorySearchMinScore, "min-score", 0.7, "Minimum similarity score (0-1)")
 	memorySearchCmd.Flags().BoolVar(&memorySearchJSON, "json", false, "Output in JSON format")
+
+	memoryIndexCmd.Flags().BoolVar(&memoryForceBuiltin, "builtin", false, "Force using builtin backend")
+}
+
+// getWorkspace 获取工作区路径
+func getWorkspace() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+
+	cfg, err := config.Load("")
+	if err != nil {
+		// 使用默认工作区
+		return filepath.Join(home, ".goclaw", "workspace"), nil
+	}
+
+	if cfg.Workspace.Path != "" {
+		return cfg.Workspace.Path, nil
+	}
+
+	return filepath.Join(home, ".goclaw", "workspace"), nil
+}
+
+// getSearchManager 获取搜索管理器
+func getSearchManager() (memory.MemorySearchManager, error) {
+	workspace, err := getWorkspace()
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, err := config.Load("")
+	if err != nil {
+		// 使用默认配置
+		cfg = &config.Config{
+			Memory: config.MemoryConfig{
+				Backend: "builtin",
+				Builtin: config.BuiltinMemoryConfig{
+					Enabled: true,
+				},
+			},
+		}
+	}
+
+	// 如果强制使用 builtin
+	if memoryForceBuiltin {
+		cfg.Memory.Backend = "builtin"
+	}
+
+	return memory.GetMemorySearchManager(cfg.Memory, workspace)
 }
 
 // runMemoryStatus 执行记忆状态命令
 func runMemoryStatus(cmd *cobra.Command, args []string) {
-	home, err := os.UserHomeDir()
+	mgr, err := getSearchManager()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to create search manager: %v\n", err)
 		os.Exit(1)
 	}
+	defer mgr.Close()
 
-	dbPath := filepath.Join(home, ".goclaw", "memory", "store.db")
+	status := mgr.GetStatus()
 
-	// Check if database exists
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		fmt.Println("Memory store not initialized.")
-		fmt.Println("Run 'goclaw memory index' to create the memory store.")
+	// Display status
+	fmt.Println("Memory Status")
+	fmt.Println("=============")
+
+	// Backend
+	if backend, ok := status["backend"].(string); ok {
+		fmt.Printf("\nBackend: %s\n", backend)
+	}
+
+	// QMD specific
+	if available, ok := status["available"].(bool); ok {
+		if available {
+			fmt.Println("  Status: Available")
+		} else {
+			fmt.Println("  Status: Unavailable")
+		}
+	}
+
+	if collections, ok := status["collections"].([]string); ok {
+		fmt.Printf("  Collections: %v\n", collections)
+	}
+
+	if indexedFiles, ok := status["indexed_files"].(int); ok {
+		fmt.Printf("  Indexed Files: %d\n", indexedFiles)
+	}
+
+	if totalDocs, ok := status["total_documents"].(int); ok {
+		fmt.Printf("  Total Documents: %d\n", totalDocs)
+	}
+
+	if lastUpdated, ok := status["last_updated"].(time.Time); ok && !lastUpdated.IsZero() {
+		fmt.Printf("  Last Updated: %s\n", lastUpdated.Format(time.RFC3339))
+	}
+
+	if lastEmbed, ok := status["last_embed"].(time.Time); ok && !lastEmbed.IsZero() {
+		fmt.Printf("  Last Embed: %s\n", lastEmbed.Format(time.RFC3339))
+	}
+
+	// Builtin specific
+	if dbPath, ok := status["database_path"].(string); ok {
+		fmt.Printf("\nDatabase: %s\n", dbPath)
+	}
+
+	if totalCount, ok := status["total_count"].(int); ok {
+		fmt.Printf("Total Entries: %d\n", totalCount)
+	}
+
+	if sourceCounts, ok := status["source_counts"].(map[memory.MemorySource]int); ok {
+		fmt.Println("\nBy Source:")
+		for source, count := range sourceCounts {
+			fmt.Printf("  %s: %d\n", source, count)
+		}
+	}
+
+	if typeCounts, ok := status["type_counts"].(map[memory.MemoryType]int); ok {
+		fmt.Println("\nBy Type:")
+		for memType, count := range typeCounts {
+			fmt.Printf("  %s: %d\n", memType, count)
+		}
+	}
+
+	// Fallback status
+	if fallbackEnabled, ok := status["fallback_enabled"].(bool); ok && fallbackEnabled {
+		fmt.Println("\nNote: Running in fallback mode (builtin)")
+		if fallbackStatus, ok := status["fallback_status"].(map[string]interface{}); ok {
+			fmt.Println("Fallback Status:")
+			for k, v := range fallbackStatus {
+				fmt.Printf("  %s: %v\n", k, v)
+			}
+		}
+	}
+
+	// Error message
+	if errMsg, ok := status["error"].(string); ok && errMsg != "" {
+		fmt.Printf("\nError: %s\n", errMsg)
+	}
+}
+
+// runMemoryBackend 显示当前后端
+func runMemoryBackend(cmd *cobra.Command, args []string) {
+	cfg, err := config.Load("")
+	if err != nil {
+		fmt.Printf("Backend: builtin (default)\n")
 		return
 	}
 
-	// Load config for API key
-	cfg, err := config.Load("")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-		os.Exit(1)
+	backend := cfg.Memory.Backend
+	if backend == "" {
+		backend = "builtin"
 	}
 
-	// Create embedding provider
-	var provider memory.EmbeddingProvider
-	var providerErr error
+	fmt.Printf("Backend: %s\n", backend)
 
-	apiKey := cfg.Providers.OpenAI.APIKey
-	if apiKey == "" {
-		apiKey = cfg.Providers.OpenRouter.APIKey
-	}
-
-	if apiKey != "" {
-		providerCfg := memory.DefaultOpenAIConfig(apiKey)
-		provider, providerErr = memory.NewOpenAIProvider(providerCfg)
-		if providerErr != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %v\n", providerErr)
-			os.Exit(1)
+	if backend == "qmd" {
+		fmt.Printf("  QMD Command: %s\n", cfg.Memory.QMD.Command)
+		fmt.Printf("  Enabled: %v\n", cfg.Memory.QMD.Enabled)
+		if len(cfg.Memory.QMD.Paths) > 0 {
+			fmt.Println("  Paths:")
+			for _, p := range cfg.Memory.QMD.Paths {
+				fmt.Printf("    - %s: %s (%s)\n", p.Name, p.Path, p.Pattern)
+			}
 		}
-	} else {
-		fmt.Println("Warning: No embedding provider configured. Some features may be limited.")
+		if cfg.Memory.QMD.Sessions.Enabled {
+			fmt.Printf("  Sessions Export: %s\n", cfg.Memory.QMD.Sessions.ExportDir)
+		}
 	}
-
-	// Create store
-	storeConfig := memory.DefaultStoreConfig(dbPath, provider)
-	store, err := memory.NewSQLiteStore(storeConfig)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open memory store: %v\n", err)
-		os.Exit(1)
-	}
-	defer store.Close()
-
-	// Get all memories
-	allMemories, err := store.List(nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to list memories: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Calculate statistics
-	sourceCounts := make(map[memory.MemorySource]int)
-	typeCounts := make(map[memory.MemoryType]int)
-	var totalEntries int
-
-	for _, mem := range allMemories {
-		sourceCounts[mem.Source]++
-		typeCounts[mem.Type]++
-		totalEntries++
-	}
-
-	// Display statistics
-	fmt.Println("Memory Store Status")
-	fmt.Println("===================")
-	fmt.Printf("\nDatabase: %s\n", dbPath)
-	fmt.Printf("Total Entries: %d\n\n", totalEntries)
-
-	fmt.Println("By Source:")
-	for source, count := range sourceCounts {
-		fmt.Printf("  %s: %d\n", source, count)
-	}
-
-	fmt.Println("\nBy Type:")
-	for memType, count := range typeCounts {
-		fmt.Printf("  %s: %d\n", memType, count)
-	}
-
-	// Show provider info
-	if provider != nil {
-		fmt.Printf("\nEmbedding Provider:\n")
-		fmt.Printf("  Dimension: %d\n", provider.Dimension())
-		fmt.Printf("  Max Batch Size: %d\n", provider.MaxBatchSize())
-	}
-
-	_ = provider // Avoid unused variable warning when provider is nil
 }
 
 // runMemoryIndex 执行记忆索引命令
 func runMemoryIndex(cmd *cobra.Command, args []string) {
+	workspace, err := getWorkspace()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get workspace: %v\n", err)
+		os.Exit(1)
+	}
+
+	cfg, err := config.Load("")
+	if err != nil {
+		cfg = &config.Config{}
+	}
+
+	// 如果强制使用 builtin 或配置为 builtin
+	if memoryForceBuiltin || cfg.Memory.Backend == "builtin" || cfg.Memory.Backend == "" {
+		runBuiltinIndex(workspace, cfg)
+		return
+	}
+
+	// QMD 模式
+	if cfg.Memory.Backend == "qmd" {
+		runQMDIndex(workspace, cfg)
+		return
+	}
+
+	fmt.Fprintf(os.Stderr, "Unknown backend: %s\n", cfg.Memory.Backend)
+	os.Exit(1)
+}
+
+// runBuiltinIndex 执行 builtin 索引
+func runBuiltinIndex(workspace string, cfg *config.Config) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	workspaceDir := filepath.Join(home, ".goclaw", "workspace")
-	memoryDir := filepath.Join(workspaceDir, "memory")
+	memoryDir := filepath.Join(workspace, "memory")
 	dbPath := filepath.Join(home, ".goclaw", "memory", "store.db")
 
 	// Load config for API key
-	cfg, err := config.Load("")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create embedding provider
-	var provider memory.EmbeddingProvider
-	var providerErr error
-
 	apiKey := cfg.Providers.OpenAI.APIKey
 	if apiKey == "" {
 		apiKey = cfg.Providers.OpenRouter.APIKey
@@ -192,10 +293,11 @@ func runMemoryIndex(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Create embedding provider
 	providerCfg := memory.DefaultOpenAIConfig(apiKey)
-	provider, providerErr = memory.NewOpenAIProvider(providerCfg)
-	if providerErr != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %v\n", providerErr)
+	provider, err := memory.NewOpenAIProvider(providerCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -217,8 +319,8 @@ func runMemoryIndex(cmd *cobra.Command, args []string) {
 	}
 	defer manager.Close()
 
-	fmt.Println("Indexing memory files...")
-	fmt.Printf("Workspace: %s\n", workspaceDir)
+	fmt.Println("Indexing memory files (builtin backend)...")
+	fmt.Printf("Workspace: %s\n", workspace)
 	fmt.Printf("Database: %s\n\n", dbPath)
 
 	ctx := context.Background()
@@ -254,6 +356,171 @@ func runMemoryIndex(cmd *cobra.Command, args []string) {
 
 	fmt.Println("\nIndexing complete!")
 }
+
+// runQMDIndex 执行 QMD 索引
+func runQMDIndex(workspace string, cfg *config.Config) {
+	fmt.Println("Indexing memory files (QMD backend)...")
+
+	// Create QMD config
+	qmdCfg := cfg.Memory.QMD
+	qmdMgrConfig := qmd.QMDConfig{
+		Command:        qmdCfg.Command,
+		Enabled:        qmdCfg.Enabled,
+		IncludeDefault: qmdCfg.IncludeDefault,
+		Paths:          make([]qmd.QMDPathConfig, len(qmdCfg.Paths)),
+		Sessions: qmd.QMDSessionsConfig{
+			Enabled:       qmdCfg.Sessions.Enabled,
+			ExportDir:     qmdCfg.Sessions.ExportDir,
+			RetentionDays: qmdCfg.Sessions.RetentionDays,
+		},
+		Update: qmd.QMDUpdateConfig{
+			Interval:        qmdCfg.Update.Interval,
+			OnBoot:          qmdCfg.Update.OnBoot,
+			EmbedInterval:   qmdCfg.Update.EmbedInterval,
+			CommandTimeout:  qmdCfg.Update.CommandTimeout,
+			UpdateTimeout:   qmdCfg.Update.UpdateTimeout,
+		},
+		Limits: qmd.QMDLimitsConfig{
+			MaxResults:     qmdCfg.Limits.MaxResults,
+			MaxSnippetChars: qmdCfg.Limits.MaxSnippetChars,
+			TimeoutMs:      qmdCfg.Limits.TimeoutMs,
+		},
+	}
+
+	for i, p := range qmdCfg.Paths {
+		qmdMgrConfig.Paths[i] = qmd.QMDPathConfig{
+			Name:    p.Name,
+			Path:    p.Path,
+			Pattern: p.Pattern,
+		}
+	}
+
+	qmdMgr := qmd.NewQMDManager(qmdMgrConfig, workspace, "")
+
+	// Initialize
+	ctx, cancel := context.WithTimeout(context.Background(), qmdCfg.Update.UpdateTimeout)
+	defer cancel()
+
+	if err := qmdMgr.Initialize(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize QMD manager: %v\n", err)
+		os.Exit(1)
+	}
+	defer qmdMgr.Close()
+
+	// Update
+	fmt.Println("Updating QMD collections...")
+	if err := qmdMgr.Update(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to update collections: %v\n", err)
+	}
+
+	// Embed
+	fmt.Println("Generating embeddings...")
+	if err := qmdMgr.Embed(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to generate embeddings: %v\n", err)
+	}
+
+	// Show status
+	status := qmdMgr.GetStatus()
+	fmt.Println("\nIndexing complete!")
+	fmt.Printf("Collections: %v\n", status.Collections)
+	fmt.Printf("Indexed Files: %d\n", status.IndexedFiles)
+	fmt.Printf("Total Documents: %d\n", status.TotalDocuments)
+}
+
+// runMemorySearch 执行记忆搜索命令
+func runMemorySearch(cmd *cobra.Command, args []string) {
+	query := args[0]
+
+	mgr, err := getSearchManager()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create search manager: %v\n", err)
+		os.Exit(1)
+	}
+	defer mgr.Close()
+
+	// Perform search
+	ctx := context.Background()
+	opts := memory.DefaultSearchOptions()
+	opts.Limit = memorySearchLimit
+	opts.MinScore = memorySearchMinScore
+
+	results, err := mgr.Search(ctx, query, opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Search failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if memorySearchJSON {
+		outputSearchResultsJSON(query, results)
+		return
+	}
+
+	outputSearchResults(query, results)
+}
+
+// outputSearchResultsJSON 输出搜索结果为 JSON
+func outputSearchResultsJSON(query string, results []*memory.SearchResult) {
+	data := struct {
+		Query   string                 `json:"query"`
+		Count   int                    `json:"count"`
+		Results []*memory.SearchResult `json:"results"`
+	}{
+		Query:   query,
+		Count:   len(results),
+		Results: results,
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to marshal JSON: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(string(jsonData))
+}
+
+// outputSearchResults 输出搜索结果
+func outputSearchResults(query string, results []*memory.SearchResult) {
+	if len(results) == 0 {
+		fmt.Printf("No results found for: %s\n", query)
+		return
+	}
+
+	fmt.Printf("Search Results for: %s\n", query)
+	fmt.Printf("Found %d result(s)\n\n", len(results))
+
+	for i, result := range results {
+		fmt.Printf("[%d] Score: %.2f\n", i+1, result.Score)
+		if result.Source != "" {
+			fmt.Printf("    Source: %s\n", result.Source)
+		}
+		if result.Type != "" {
+			fmt.Printf("    Type: %s\n", result.Type)
+		}
+
+		if result.Metadata.FilePath != "" {
+			fmt.Printf("    File: %s", result.Metadata.FilePath)
+			if result.Metadata.LineNumber > 0 {
+				fmt.Printf(":%d", result.Metadata.LineNumber)
+			}
+			fmt.Println()
+		}
+
+		if !result.CreatedAt.IsZero() {
+			fmt.Printf("    Created: %s\n", result.CreatedAt.Format(time.RFC3339))
+		}
+
+		// Truncate text for display
+		text := result.Text
+		maxLen := 200
+		if len(text) > maxLen {
+			text = text[:maxLen] + "..."
+		}
+		fmt.Printf("    Text: %s\n\n", text)
+	}
+}
+
+// Helper functions for builtin indexing
 
 // indexFile 索引单个文件
 func indexFile(ctx context.Context, manager *memory.MemoryManager, filePath string, source memory.MemorySource, memType memory.MemoryType) error {
@@ -386,145 +653,4 @@ func trimSpace(s string) string {
 	}
 
 	return s[start:end]
-}
-
-// runMemorySearch 执行记忆搜索命令
-func runMemorySearch(cmd *cobra.Command, args []string) {
-	query := args[0]
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
-		os.Exit(1)
-	}
-
-	dbPath := filepath.Join(home, ".goclaw", "memory", "store.db")
-
-	// Check if database exists
-	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Memory store not initialized. Run 'goclaw memory index' first.\n")
-		os.Exit(1)
-	}
-
-	// Load config for API key
-	cfg, err := config.Load("")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create embedding provider
-	var provider memory.EmbeddingProvider
-	var providerErr error
-
-	apiKey := cfg.Providers.OpenAI.APIKey
-	if apiKey == "" {
-		apiKey = cfg.Providers.OpenRouter.APIKey
-	}
-
-	if apiKey == "" {
-		fmt.Fprintf(os.Stderr, "Error: No embedding provider API key found in config.\n")
-		os.Exit(1)
-	}
-
-	providerCfg := memory.DefaultOpenAIConfig(apiKey)
-	provider, providerErr = memory.NewOpenAIProvider(providerCfg)
-	if providerErr != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %v\n", providerErr)
-		os.Exit(1)
-	}
-
-	// Create store
-	storeConfig := memory.DefaultStoreConfig(dbPath, provider)
-	store, err := memory.NewSQLiteStore(storeConfig)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open memory store: %v\n", err)
-		os.Exit(1)
-	}
-	defer store.Close()
-
-	// Create memory manager
-	managerConfig := memory.DefaultManagerConfig(store, provider)
-	manager, err := memory.NewMemoryManager(managerConfig)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create memory manager: %v\n", err)
-		os.Exit(1)
-	}
-	defer manager.Close()
-
-	// Perform search
-	ctx := context.Background()
-	opts := memory.DefaultSearchOptions()
-	opts.Limit = memorySearchLimit
-	opts.MinScore = memorySearchMinScore
-
-	results, err := manager.Search(ctx, query, opts)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Search failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	if memorySearchJSON {
-		outputSearchResultsJSON(results)
-		return
-	}
-
-	outputSearchResults(query, results)
-}
-
-// outputSearchResultsJSON 输出搜索结果为 JSON
-func outputSearchResultsJSON(results []*memory.SearchResult) {
-	data := struct {
-		Query   string                 `json:"query"`
-		Count   int                    `json:"count"`
-		Results []*memory.SearchResult `json:"results"`
-	}{
-		Count:   len(results),
-		Results: results,
-	}
-
-	jsonData, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to marshal JSON: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println(string(jsonData))
-}
-
-// outputSearchResults 输出搜索结果
-func outputSearchResults(query string, results []*memory.SearchResult) {
-	if len(results) == 0 {
-		fmt.Printf("No results found for: %s\n", query)
-		return
-	}
-
-	fmt.Printf("Search Results for: %s\n", query)
-	fmt.Printf("Found %d result(s)\n\n", len(results))
-
-	for i, result := range results {
-		fmt.Printf("[%d] Score: %.2f\n", i+1, result.Score)
-		fmt.Printf("    Source: %s\n", result.Source)
-		fmt.Printf("    Type: %s\n", result.Type)
-
-		if result.Metadata.FilePath != "" {
-			fmt.Printf("    File: %s", result.Metadata.FilePath)
-			if result.Metadata.LineNumber > 0 {
-				fmt.Printf(":%d", result.Metadata.LineNumber)
-			}
-			fmt.Println()
-		}
-
-		if !result.CreatedAt.IsZero() {
-			fmt.Printf("    Created: %s\n", result.CreatedAt.Format(time.RFC3339))
-		}
-
-		// Truncate text for display
-		text := result.Text
-		maxLen := 200
-		if len(text) > maxLen {
-			text = text[:maxLen] + "..."
-		}
-		fmt.Printf("    Text: %s\n\n", text)
-	}
 }
