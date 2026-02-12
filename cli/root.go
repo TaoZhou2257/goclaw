@@ -15,6 +15,7 @@ import (
 	"github.com/smallnest/goclaw/config"
 	"github.com/smallnest/goclaw/cron"
 	"github.com/smallnest/goclaw/gateway"
+	"github.com/smallnest/goclaw/internal"
 	"github.com/smallnest/goclaw/internal/logger"
 	"github.com/smallnest/goclaw/internal/workspace"
 	"github.com/smallnest/goclaw/providers"
@@ -94,6 +95,22 @@ func Execute() error {
 
 // runStart 启动 Agent
 func runStart(cmd *cobra.Command, args []string) {
+	// 确保内置技能被复制到用户目录
+	if err := internal.EnsureBuiltinSkills(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to ensure builtin skills: %v\n", err)
+	}
+
+	// 确保配置文件存在
+	configCreated, err := internal.EnsureConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to ensure config: %v\n", err)
+	}
+	if configCreated {
+		fmt.Println("Config file created at: " + internal.GetConfigPath())
+		fmt.Println("Please edit the config file to set your API keys and other settings.")
+		fmt.Println()
+	}
+
 	// 加载配置
 	cfg, err := config.Load("")
 	if err != nil {
