@@ -513,14 +513,72 @@ func (l *SkillsLoader) refreshPath() error {
 	return nil
 }
 
+// PackageType 包类型枚举
+type PackageType string
+
+const (
+	PackageTypePython PackageType = "python"
+	PackageTypeNode   PackageType = "node"
+)
+
+// checkPackageInstalled 检查包是否已安装（通用函数）
+func (l *SkillsLoader) checkPackageInstalled(pkgType PackageType, pkg string) error {
+	switch pkgType {
+	case PackageTypePython:
+		cmd := exec.Command("python3", "-c", fmt.Sprintf("import %s; print('OK')", pkg))
+		output, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(output), "OK") {
+			return fmt.Errorf("Python package not found: %s", pkg)
+		}
+		return nil
+	case PackageTypeNode:
+		cmd := exec.Command("npm", "list", "--global", "--json", "--depth=0", pkg)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("npm command failed: %w", err)
+		}
+		var result []npmPackageInfo
+		if err := json.Unmarshal(output, &result); err != nil {
+			return fmt.Errorf("failed to parse npm output: %w", err)
+		}
+		if len(result) == 0 {
+			return fmt.Errorf("Node.js package not found: %s", pkg)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported package type: %s", pkgType)
+	}
+}
+
+// tryInstallPackage 尝试安装包（通用函数）
+func (l *SkillsLoader) tryInstallPackage(pkgType PackageType, pkg string) error {
+	logger.Info("Installing package", zap.String("type", string(pkgType)), zap.String("package", pkg))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	switch pkgType {
+	case PackageTypePython:
+		cmd = exec.CommandContext(ctx, "python3", "-m", "pip", "install", pkg)
+	case PackageTypeNode:
+		cmd = exec.CommandContext(ctx, "npm", "install", "-g", pkg)
+	default:
+		return fmt.Errorf("unsupported package type: %s", pkgType)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s install failed: %w, output: %s", pkgType, err, string(output))
+	}
+
+	logger.Info("Package installed successfully", zap.String("type", string(pkgType)), zap.String("package", pkg))
+	return nil
+}
+
 // checkPythonPackage 检查Python包是否已安装
 func (l *SkillsLoader) checkPythonPackage(pkg string) error {
-	cmd := exec.Command("python3", "-c", fmt.Sprintf("import %s; print('OK')", pkg))
-	output, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(output), "OK") {
-		return fmt.Errorf("Python package not found: %s", pkg)
-	}
-	return nil
+	return l.checkPackageInstalled(PackageTypePython, pkg)
 }
 
 // npmPackageInfo npm包信息
@@ -530,59 +588,17 @@ type npmPackageInfo struct {
 
 // checkNodePackage 检查Node.js包是否已安装
 func (l *SkillsLoader) checkNodePackage(pkg string) error {
-	cmd := exec.Command("npm", "list", "--global", "--json", "--depth=0", pkg)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("npm command failed: %w", err)
-	}
-
-	// npm list 返回空JSON列表时表示包未找到
-	var result []npmPackageInfo
-	if err := json.Unmarshal(output, &result); err != nil {
-		return fmt.Errorf("failed to parse npm output: %w", err)
-	}
-
-	if len(result) == 0 {
-		return fmt.Errorf("Node.js package not found: %s", pkg)
-	}
-
-	return nil
+	return l.checkPackageInstalled(PackageTypeNode, pkg)
 }
 
 // tryInstallPythonPackage 尝试安装Python包
 func (l *SkillsLoader) tryInstallPythonPackage(pkg string) error {
-	logger.Info("Installing Python package", zap.String("package", pkg))
-
-	// 执行安装，带超时
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "python3", "-m", "pip", "install", pkg)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("pip install failed: %w, output: %s", err, string(output))
-	}
-
-	logger.Info("Python package installed successfully", zap.String("package", pkg))
-	return nil
+	return l.tryInstallPackage(PackageTypePython, pkg)
 }
 
 // tryInstallNodePackage 尝试安装Node.js包
 func (l *SkillsLoader) tryInstallNodePackage(pkg string) error {
-	logger.Info("Installing Node.js package", zap.String("package", pkg))
-
-	// 执行安装，带超时
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "npm", "install", "-g", pkg)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("npm install failed: %w, output: %s", err, string(output))
-	}
-
-	logger.Info("Node.js package installed successfully", zap.String("package", pkg))
-	return nil
+	return l.tryInstallPackage(PackageTypeNode, pkg)
 }
 
 // getMissingDeps 计算缺失的依赖

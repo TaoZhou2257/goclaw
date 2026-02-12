@@ -12,7 +12,7 @@ import (
 	"github.com/smallnest/goclaw/bus"
 	"github.com/smallnest/goclaw/channels"
 	"github.com/smallnest/goclaw/cli/commands"
-	"github.com/smallnest/goclaw/config"
+	"github.com/smallnest/goclaw/cli/commands"
 	"github.com/smallnest/goclaw/cron"
 	"github.com/smallnest/goclaw/gateway"
 	"github.com/smallnest/goclaw/internal/logger"

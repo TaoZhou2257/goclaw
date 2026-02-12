@@ -75,6 +75,55 @@ func (t *FileSystemTool) WriteFile(ctx context.Context, params map[string]interf
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(content), path), nil
 }
 
+// EditFile 编辑文件（精确字符串替换）
+func (t *FileSystemTool) EditFile(ctx context.Context, params map[string]interface{}) (string, error) {
+	path, ok := params["path"].(string)
+	if !ok {
+		return "", fmt.Errorf("path parameter is required")
+	}
+
+	oldStr, ok := params["old_string"].(string)
+	if !ok {
+		return "", fmt.Errorf("old_string parameter is required")
+	}
+
+	newStr, ok := params["new_string"].(string)
+	if !ok {
+		return "", fmt.Errorf("new_string parameter is required")
+	}
+
+	// 检查路径权限
+	if !t.isAllowed(path) {
+		return "", fmt.Errorf("access to path %s is not allowed", path)
+	}
+
+	// 读取文件内容
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	fileContent := string(content)
+
+	// 检查旧字符串是否存在
+	if !strings.Contains(fileContent, oldStr) {
+		return "", fmt.Errorf("old_string not found in file. Please verify the exact text to replace.")
+	}
+
+	// 计算替换次数
+	occurrences := strings.Count(fileContent, oldStr)
+
+	// 执行替换
+	newContent := strings.ReplaceAll(fileContent, oldStr, newStr)
+
+	// 写入文件
+	if err := os.WriteFile(path, []byte(newContent), 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+
+	return fmt.Sprintf("Successfully replaced %d occurrence(s) in %s", occurrences, path), nil
+}
+
 // ListDir 列出目录
 func (t *FileSystemTool) ListDir(ctx context.Context, params map[string]interface{}) (string, error) {
 	path, ok := params["path"].(string)
@@ -253,6 +302,29 @@ func (t *FileSystemTool) GetTools() []Tool {
 				"required": []string{"path", "content"},
 			},
 			t.WriteFile,
+		),
+		NewBaseTool(
+			"edit_file",
+			"Replace all occurrences of old_string with new_string in a file. Use for precise edits to existing files.",
+			map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the file to edit",
+					},
+					"old_string": map[string]interface{}{
+						"type":        "string",
+						"description": "The exact text to be replaced (must match exactly)",
+					},
+					"new_string": map[string]interface{}{
+						"type":        "string",
+						"description": "The new text to replace old_string with",
+					},
+				},
+				"required": []string{"path", "old_string", "new_string"},
+			},
+			t.EditFile,
 		),
 		NewBaseTool(
 			"list_dir",

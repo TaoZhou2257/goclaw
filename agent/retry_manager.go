@@ -78,23 +78,23 @@ func (p *DefaultRetryPolicy) ShouldRetry(attempt int, err error) (bool, Failover
 	}
 }
 
+// calculateExponentialBackoff 计算指数退避延迟
+func calculateExponentialBackoff(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
+	delay := time.Duration(1<<uint(attempt)) * baseDelay
+	if delay > maxDelay {
+		return maxDelay
+	}
+	return delay
+}
+
 // GetDelay 获取重试延迟
 func (p *DefaultRetryPolicy) GetDelay(attempt int, reason FailoverReason) time.Duration {
 	// 限流错误使用更长的延迟
 	if reason == FailoverReasonRateLimit {
-		delay := time.Duration(1<<uint(attempt)) * p.config.BaseDelay
-		if delay > p.config.MaxDelay {
-			return p.config.MaxDelay
-		}
-		return delay
+		return calculateExponentialBackoff(attempt, p.config.BaseDelay, p.config.MaxDelay)
 	}
-
 	// 其他错误使用指数退避
-	delay := time.Duration(1<<uint(attempt)) * p.config.BaseDelay
-	if delay > p.config.MaxDelay {
-		return p.config.MaxDelay
-	}
-	return delay
+	return calculateExponentialBackoff(attempt, p.config.BaseDelay, p.config.MaxDelay)
 }
 
 // RetryManager 重试管理器

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -223,61 +224,16 @@ func (r *Reflector) parseReflectionResponse(content string) (*TaskReflection, er
 
 	jsonStr := content[jsonStart : jsonEnd+1]
 
-	// 简单解析 JSON（实际应该使用 encoding/json）
-	reflection := &TaskReflection{
-		Status:     TaskStatusInProgress,
-		Confidence: 0.5,
+	var reflection TaskReflection
+	if err := json.Unmarshal([]byte(jsonStr), &reflection); err != nil {
+		return &TaskReflection{
+			Status:     TaskStatusInProgress,
+			Confidence: 0.5,
+			Reasoning:  "Failed to parse JSON: " + err.Error(),
+		}, nil
 	}
 
-	// 提取状态
-	if strings.Contains(jsonStr, `"status":"completed"`) {
-		reflection.Status = TaskStatusCompleted
-	} else if strings.Contains(jsonStr, `"status":"in_progress"`) {
-		reflection.Status = TaskStatusInProgress
-	} else if strings.Contains(jsonStr, `"status":"failed"`) {
-		reflection.Status = TaskStatusFailed
-	} else if strings.Contains(jsonStr, `"status":"blocked"`) {
-		reflection.Status = TaskStatusBlocked
-	}
-
-	// 提取 confidence
-	if idx := strings.Index(jsonStr, `"confidence":`); idx != -1 {
-		// 简单提取逻辑
-		end := strings.Index(jsonStr[idx:], ",")
-		if end == -1 {
-			end = strings.Index(jsonStr[idx:], "}")
-		}
-		if end > 0 {
-			numStr := strings.TrimSpace(jsonStr[idx+13 : idx+end])
-			_, _ = fmt.Sscanf(numStr, "%f", &reflection.Confidence)
-		}
-	}
-
-	// 提取 reasoning
-	if idx := strings.Index(jsonStr, `"reasoning":`); idx != -1 {
-		start := idx + 12
-		if jsonStr[start] == '"' {
-			start++
-			end := strings.Index(jsonStr[start:], `"`)
-			if end > 0 {
-				reflection.Reasoning = jsonStr[start : start+end]
-			}
-		}
-	}
-
-	// 提取 next_action
-	if idx := strings.Index(jsonStr, `"next_action":`); idx != -1 {
-		start := idx + 14
-		if start < len(jsonStr) && jsonStr[start] == '"' {
-			start++
-			end := strings.Index(jsonStr[start:], `"`)
-			if end > 0 {
-				reflection.NextAction = jsonStr[start : start+end]
-			}
-		}
-	}
-
-	return reflection, nil
+	return &reflection, nil
 }
 
 // ShouldContinueIteration 判断是否应该继续迭代
