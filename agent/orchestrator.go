@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/smallnest/goclaw/internal/logger"
@@ -179,7 +180,24 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 
 	// Call provider with system prompt as first message
 	fullMessages := []providers.Message{}
-	if state.SystemPrompt != "" {
+
+	// Build system prompt with skills if context builder is available
+	if o.config.ContextBuilder != nil {
+		skillsContent := ""
+		if len(state.LoadedSkills) > 0 {
+			// Second phase: inject full content of loaded skills
+			skillsContent = o.config.ContextBuilder.buildSelectedSkills(state.LoadedSkills, o.config.Skills)
+		} else if len(o.config.Skills) > 0 {
+			// First phase: inject skill summary (available skills list)
+			skillsContent = o.config.ContextBuilder.buildSkillsPrompt(o.config.Skills, PromptModeFull)
+		}
+		systemPrompt := o.config.ContextBuilder.buildSystemPromptWithSkills(skillsContent, PromptModeFull)
+		fullMessages = append(fullMessages, providers.Message{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	} else if state.SystemPrompt != "" {
+		// Fallback to stored system prompt
 		fullMessages = append(fullMessages, providers.Message{
 			Role:    "system",
 			Content: state.SystemPrompt,
@@ -205,7 +223,14 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCallContent, state *AgentState) ([]AgentMessage, []AgentMessage) {
 	results := make([]AgentMessage, 0, len(toolCalls))
 
+	logger.Info("=== Execute Tool Calls Start ===",
+		zap.Int("count", len(toolCalls)))
 	for _, tc := range toolCalls {
+		logger.Info("Tool call start",
+			zap.String("tool_id", tc.ID),
+			zap.String("tool_name", tc.Name),
+			zap.Any("arguments", tc.Arguments))
+
 		// Emit tool execution start
 		o.emit(NewEvent(EventToolExecutionStart).WithToolExecution(tc.ID, tc.Name, tc.Arguments))
 
@@ -227,6 +252,9 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 				Content: []ContentBlock{TextContent{Text: fmt.Sprintf("Tool not found: %s", tc.Name)}},
 				Details: map[string]any{"error": err.Error()},
 			}
+			logger.Error("Tool not found",
+				zap.String("tool_name", tc.Name),
+				zap.String("tool_id", tc.ID))
 		} else {
 			state.AddPendingTool(tc.ID)
 
@@ -239,6 +267,24 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 			})
 
 			state.RemovePendingTool(tc.ID)
+		}
+
+		// Log tool execution result
+		if err != nil {
+			logger.Error("Tool execution failed",
+				zap.String("tool_id", tc.ID),
+				zap.String("tool_name", tc.Name),
+				zap.Any("arguments", tc.Arguments),
+				zap.Error(err))
+		} else {
+			// Extract content for logging
+			contentText := extractToolResultContent(result.Content)
+			logger.Info("Tool execution success",
+				zap.String("tool_id", tc.ID),
+				zap.String("tool_name", tc.Name),
+				zap.Any("arguments", tc.Arguments),
+				zap.Int("result_length", len(contentText)),
+				zap.String("result_preview", truncateString(contentText, 200)))
 		}
 
 		// Convert result to message
@@ -256,6 +302,27 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 
 		results = append(results, resultMsg)
 
+		// Check for use_skill and update LoadedSkills
+		if tc.Name == "use_skill" && err == nil {
+			if skillName, ok := tc.Arguments["skill_name"].(string); ok && skillName != "" {
+				// Add to LoadedSkills if not already present
+				alreadyLoaded := false
+				for _, loaded := range state.LoadedSkills {
+					if loaded == skillName {
+						alreadyLoaded = true
+						break
+					}
+				}
+				if !alreadyLoaded {
+					state.LoadedSkills = append(state.LoadedSkills, skillName)
+					logger.Info("=== Skill Loaded ===",
+						zap.String("skill_name", skillName),
+						zap.Int("total_loaded", len(state.LoadedSkills)),
+						zap.Strings("loaded_skills", state.LoadedSkills))
+				}
+			}
+		}
+
 		// Emit tool execution end
 		event := NewEvent(EventToolExecutionEnd).
 			WithToolExecution(tc.ID, tc.Name, tc.Arguments).
@@ -269,6 +336,8 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 		}
 	}
 
+	logger.Info("=== Execute Tool Calls End ===",
+		zap.Int("count", len(results)))
 	return results, nil
 }
 
@@ -441,4 +510,29 @@ func convertInterfaceToAny(m map[string]interface{}) map[string]any {
 		result[k] = v
 	}
 	return result
+}
+
+// extractToolResultContent extracts text content from tool result
+func extractToolResultContent(content []ContentBlock) string {
+	var result strings.Builder
+	for _, block := range content {
+		if text, ok := block.(TextContent); ok {
+			if result.Len() > 0 {
+				result.WriteString("\n")
+			}
+			result.WriteString(text.Text)
+		}
+	}
+	return result.String()
+}
+
+// truncateString truncates a string to a maximum length
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen > 3 {
+		return s[:maxLen-3] + "..."
+	}
+	return s[:maxLen]
 }

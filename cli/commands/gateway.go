@@ -228,6 +228,27 @@ func runGateway(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to start gateway", zap.Error(err))
 	}
 
+	// Start channels
+	if err := channelMgr.Start(ctx); err != nil {
+		logger.Error("Failed to start channels", zap.Error(err))
+	}
+	defer func() { _ = channelMgr.Stop() }()
+
+	// Start outbound message dispatcher
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Error("Outbound message dispatcher panicked",
+					zap.Any("panic", r))
+			}
+		}()
+		if err := channelMgr.DispatchOutbound(ctx); err != nil {
+			logger.Error("Outbound message dispatcher exited with error", zap.Error(err))
+		} else {
+			logger.Info("Outbound message dispatcher exited normally")
+		}
+	}()
+
 	// Determine actual host and port to display
 	displayHost := gatewayBind
 	displayPort := gatewayPort

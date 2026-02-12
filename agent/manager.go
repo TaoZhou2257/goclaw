@@ -18,20 +18,21 @@ import (
 
 // AgentManager 管理多个 Agent 实例
 type AgentManager struct {
-	agents         map[string]*Agent              // agentID -> Agent
-	bindings       map[string]*BindingEntry       // channel:accountID -> BindingEntry
-	defaultAgent   *Agent                          // 默认 Agent
-	bus            *bus.MessageBus
-	sessionMgr     *session.Manager
-	provider       providers.Provider
-	tools          *ToolRegistry
-	mu             sync.RWMutex
-	cfg            *config.Config
-	contextBuilder *ContextBuilder
+	agents           map[string]*Agent      // agentID -> Agent
+	bindings         map[string]*BindingEntry // channel:accountID -> BindingEntry
+	defaultAgent     *Agent                  // 默认 Agent
+	bus              *bus.MessageBus
+	sessionMgr       *session.Manager
+	provider         providers.Provider
+	tools            *ToolRegistry
+	mu               sync.RWMutex
+	cfg              *config.Config
+	contextBuilder   *ContextBuilder
+	skillsLoader     *SkillsLoader
 	// 分身支持
 	subagentRegistry *SubagentRegistry
 	subagentAnnouncer *SubagentAnnouncer
-	dataDir         string
+	dataDir          string
 }
 
 // BindingEntry Agent 绑定条目
@@ -44,11 +45,13 @@ type BindingEntry struct {
 
 // NewAgentManagerConfig AgentManager 配置
 type NewAgentManagerConfig struct {
-	Bus        *bus.MessageBus
-	Provider   providers.Provider
-	SessionMgr *session.Manager
-	Tools      *ToolRegistry
-	DataDir    string // 数据目录，用于存储分身注册表
+	Bus          *bus.MessageBus
+	Provider     providers.Provider
+	SessionMgr   *session.Manager
+	Tools        *ToolRegistry
+	DataDir      string       // 数据目录，用于存储分身注册表
+	ContextBuilder *ContextBuilder // 上下文构建器
+	SkillsLoader *SkillsLoader // 技能加载器
 }
 
 // NewAgentManager 创建 Agent 管理器
@@ -69,6 +72,8 @@ func NewAgentManager(cfg *NewAgentManagerConfig) *AgentManager {
 		subagentRegistry: subagentRegistry,
 		subagentAnnouncer: subagentAnnouncer,
 		dataDir:          cfg.DataDir,
+		contextBuilder:   cfg.ContextBuilder,
+		skillsLoader:     cfg.SkillsLoader,
 	}
 }
 
@@ -325,6 +330,7 @@ func (m *AgentManager) createAgent(cfg config.AgentConfig, contextBuilder *Conte
 		Context:      contextBuilder,
 		Workspace:    workspace,
 		MaxIteration: maxIterations,
+		SkillsLoader: m.skillsLoader,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create agent %s: %w", cfg.ID, err)

@@ -23,6 +23,7 @@ type Agent struct {
 	tools        *ToolRegistry
 	context      *ContextBuilder
 	workspace    string
+	skillsLoader *SkillsLoader
 
 	mu        sync.RWMutex
 	state     *AgentState
@@ -39,6 +40,7 @@ type NewAgentConfig struct {
 	Context      *ContextBuilder
 	Workspace    string
 	MaxIteration int
+	SkillsLoader *SkillsLoader
 }
 
 // NewAgent creates a new agent
@@ -57,6 +59,19 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 	state.Provider = "provider"
 	state.SessionKey = "main"
 	state.Tools = ToAgentTools(cfg.Tools.ListExisting())
+	state.LoadedSkills = []string{} // Initialize with empty loaded skills
+
+	// Load skills list
+	var skills []*Skill
+	if cfg.SkillsLoader != nil {
+		if err := cfg.SkillsLoader.Discover(); err == nil {
+			skills = cfg.SkillsLoader.List()
+			logger.Info("Skills discovered for agent",
+				zap.Int("count", len(skills)))
+		} else {
+			logger.Warn("Failed to discover skills", zap.Error(err))
+		}
+	}
 
 	loopConfig := &LoopConfig{
 		Model:            state.Model,
@@ -65,6 +80,9 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 		MaxIterations:    cfg.MaxIteration,
 		ConvertToLLM:     defaultConvertToLLM,
 		TransformContext: nil,
+		Skills:           skills,
+		LoadedSkills:     state.LoadedSkills,
+		ContextBuilder:   cfg.Context,
 		GetSteeringMessages: func() ([]AgentMessage, error) {
 			state := state // Capture state
 			return state.DequeueSteeringMessages(), nil
@@ -85,6 +103,7 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 		tools:        cfg.Tools,
 		context:      cfg.Context,
 		workspace:    cfg.Workspace,
+		skillsLoader: cfg.SkillsLoader,
 		state:        state,
 		eventSubs:    make([]chan *Event, 0),
 		running:      false,

@@ -289,11 +289,13 @@ func runStart(cmd *cobra.Command, args []string) {
 
 	// 创建 AgentManager
 	agentManager := agent.NewAgentManager(&agent.NewAgentManagerConfig{
-		Bus:        messageBus,
-		Provider:   provider,
-		SessionMgr: sessionMgr,
-		Tools:      toolRegistry,
-		DataDir:    workspaceDir, // 使用 workspace 作为数据目录
+		Bus:            messageBus,
+		Provider:       provider,
+		SessionMgr:     sessionMgr,
+		Tools:          toolRegistry,
+		DataDir:        workspaceDir, // 使用 workspace 作为数据目录
+		ContextBuilder: contextBuilder,
+		SkillsLoader:   skillsLoader,
 	})
 
 	// 从配置设置 Agent 和绑定

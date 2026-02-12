@@ -107,6 +107,9 @@ type AgentState struct {
 
 	// Session key
 	SessionKey string
+
+	// Skills support
+	LoadedSkills []string
 }
 
 // EventType represents types of events emitted by the agent
@@ -156,6 +159,11 @@ type LoopConfig struct {
 	// Queues for message injection
 	GetSteeringMessages  func() ([]AgentMessage, error)
 	GetFollowUpMessages func() ([]AgentMessage, error)
+
+	// Skills support
+	Skills         []*Skill
+	LoadedSkills   []string
+	ContextBuilder *ContextBuilder
 }
 
 // NewAgentState creates a new agent state
@@ -260,6 +268,9 @@ func (s *AgentState) Clone() *AgentState {
 		pendingTools[k] = v
 	}
 
+	loadedSkills := make([]string, len(s.LoadedSkills))
+	copy(loadedSkills, s.LoadedSkills)
+
 	return &AgentState{
 		SystemPrompt:   s.SystemPrompt,
 		Model:         s.Model,
@@ -273,6 +284,7 @@ func (s *AgentState) Clone() *AgentState {
 		SteeringQueue:  steering,
 		FollowUpQueue:  followUp,
 		SessionKey:    s.SessionKey,
+		LoadedSkills:  loadedSkills,
 	}
 }
 
