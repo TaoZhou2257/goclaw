@@ -327,9 +327,6 @@ func runTUI(cmd *cobra.Command, args []string) {
 			continue
 		}
 
-		// Echo the input with prompt (readline doesn't automatically print after Enter)
-		fmt.Printf("%s%s\n", "➤ ", line)
-
 		// Check for commands
 		result, isCommand, shouldExit := cmdRegistry.Execute(line)
 		if isCommand {
