@@ -172,7 +172,11 @@ func runGateway(cmd *cobra.Command, args []string) {
 	messageBus := bus.NewMessageBus(100)
 	defer messageBus.Close()
 
-	sessionDir := os.Getenv("HOME") + "/.goclaw/sessions"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		logger.Fatal("Failed to get home directory", zap.Error(err))
+	}
+	sessionDir := homeDir + "/.goclaw/sessions"
 	sessionMgr, err := session.NewManager(sessionDir)
 	if err != nil {
 		logger.Fatal("Failed to create session manager", zap.Error(err))

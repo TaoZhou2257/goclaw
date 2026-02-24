@@ -79,7 +79,12 @@ func runAgent(cmd *cobra.Command, args []string) {
 	}
 
 	// Create workspace
-	workspace := os.Getenv("HOME") + "/.goclaw/workspace"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	workspace := homeDir + "/.goclaw/workspace"
 	if err := os.MkdirAll(workspace, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create workspace: %v\n", err)
 		os.Exit(1)
@@ -90,7 +95,7 @@ func runAgent(cmd *cobra.Command, args []string) {
 	defer messageBus.Close()
 
 	// Create session manager
-	sessionDir := os.Getenv("HOME") + "/.goclaw/sessions"
+	sessionDir := homeDir + "/.goclaw/sessions"
 	sessionMgr, err := session.NewManager(sessionDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create session manager: %v\n", err)

@@ -169,7 +169,11 @@ func runStart(cmd *cobra.Command, args []string) {
 	defer messageBus.Close()
 
 	// 创建会话管理器
-	sessionDir := os.Getenv("HOME") + "/.goclaw/sessions"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		logger.Fatal("Failed to get home directory", zap.Error(err))
+	}
+	sessionDir := homeDir + "/.goclaw/sessions"
 	sessionMgr, err := session.NewManager(sessionDir)
 	if err != nil {
 		logger.Fatal("Failed to create session manager", zap.Error(err))
@@ -185,7 +189,7 @@ func runStart(cmd *cobra.Command, args []string) {
 	toolRegistry := agent.NewToolRegistry()
 
 	// 创建技能加载器（统一使用 ~/.goclaw/skills 目录）
-	goclawDir := os.Getenv("HOME") + "/.goclaw"
+	goclawDir := homeDir + "/.goclaw"
 	skillsDir := goclawDir + "/skills"
 	skillsLoader := agent.NewSkillsLoader(goclawDir, []string{skillsDir})
 	if err := skillsLoader.Discover(); err != nil {

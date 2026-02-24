@@ -155,7 +155,12 @@ func runSkillsList(cmd *cobra.Command, args []string) {
 	defer func() { _ = logger.Sync() }()
 
 	// 创建技能加载器（统一使用 ~/.goclaw/skills 目录）
-	goclawDir := os.Getenv("HOME") + "/.goclaw"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	goclawDir := homeDir + "/.goclaw"
 	skillsDir := goclawDir + "/skills"
 	skillsLoader := agent.NewSkillsLoader(goclawDir, []string{skillsDir})
 	if err := skillsLoader.Discover(); err != nil {
@@ -227,7 +232,12 @@ func runSkillsValidate(cmd *cobra.Command, args []string) {
 	defer func() { _ = logger.Sync() }()
 
 	// 创建技能加载器（统一使用 ~/.goclaw/skills 目录）
-	goclawDir := os.Getenv("HOME") + "/.goclaw"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	goclawDir := homeDir + "/.goclaw"
 	skillsDir := goclawDir + "/skills"
 	skillsLoader := agent.NewSkillsLoader(goclawDir, []string{skillsDir})
 	if err := skillsLoader.Discover(); err != nil {
@@ -353,7 +363,12 @@ func runSkillsTest(cmd *cobra.Command, args []string) {
 	defer func() { _ = logger.Sync() }()
 
 	// 创建技能加载器（统一使用 ~/.goclaw/skills 目录）
-	goclawDir := os.Getenv("HOME") + "/.goclaw"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	goclawDir := homeDir + "/.goclaw"
 	skillsDir := goclawDir + "/skills"
 	skillsLoader := agent.NewSkillsLoader(goclawDir, []string{skillsDir})
 	if err := skillsLoader.Discover(); err != nil {
@@ -424,7 +439,12 @@ func runSkillsInstall(cmd *cobra.Command, args []string) {
 	defer func() { _ = logger.Sync() }()
 
 	// 目标目录
-	userSkillsDir := os.Getenv("HOME") + "/.goclaw/skills"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	userSkillsDir := homeDir + "/.goclaw/skills"
 	if err := os.MkdirAll(userSkillsDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create skills directory: %v\n", err)
 		os.Exit(1)
@@ -522,7 +542,12 @@ func runSkillsUpdate(cmd *cobra.Command, args []string) {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	userSkillsDir := os.Getenv("HOME") + "/.goclaw/skills"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	userSkillsDir := homeDir + "/.goclaw/skills"
 	skillPath := filepath.Join(userSkillsDir, skillName)
 
 	// 检查是否是 Git 仓库
@@ -556,7 +581,12 @@ func runSkillsUninstall(cmd *cobra.Command, args []string) {
 	}
 	defer func() { _ = logger.Sync() }()
 
-	userSkillsDir := os.Getenv("HOME") + "/.goclaw/skills"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	userSkillsDir := homeDir + "/.goclaw/skills"
 	skillPath := filepath.Join(userSkillsDir, skillName)
 
 	// 检查技能是否存在
@@ -597,7 +627,12 @@ func runSkillsConfigShow(cmd *cobra.Command, args []string) {
 	fmt.Println("===================")
 
 	// 检查是否有专门的 skills 配置文件
-	skillsConfigPath := os.Getenv("HOME") + "/.goclaw/skills.yaml"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	skillsConfigPath := homeDir + "/.goclaw/skills.yaml"
 	if _, err := os.Stat(skillsConfigPath); err == nil {
 		fmt.Printf("\nConfig file: %s\n", skillsConfigPath)
 		// TODO: 解析并显示 skills.yaml 内容
@@ -634,7 +669,12 @@ func runSkillsConfigSet(cmd *cobra.Command, args []string) {
 	configType := parts[0]
 	skillKey := parts[1]
 
-	userSkillsDir := os.Getenv("HOME") + "/.goclaw"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	userSkillsDir := homeDir + "/.goclaw"
 	skillsConfigPath := filepath.Join(userSkillsDir, "skills.yaml")
 
 	// TODO: 实现 skills.yaml 的读写
@@ -655,8 +695,13 @@ func runSkillsInstallDeps(cmd *cobra.Command, args []string) {
 	defer func() { _ = logger.Sync() }()
 
 	// 创建工作区
-	workspace := os.Getenv("HOME") + "/.goclaw/workspace"
-	managedSkillsDir := os.Getenv("HOME") + "/.goclaw/skills"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	workspace := homeDir + "/.goclaw/workspace"
+	managedSkillsDir := homeDir + "/.goclaw/skills"
 
 	// 创建技能加载器并启用自动安装
 	skillsLoader := agent.NewSkillsLoader(workspace, []string{managedSkillsDir})

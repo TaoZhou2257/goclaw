@@ -15,7 +15,9 @@ var builtinSkillsFS embed.FS
 func GetHomeDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return os.Getenv("HOME")
+		// os.UserHomeDir already handles cross-platform home directory resolution
+		// If it fails, return empty string rather than falling back to Unix-specific HOME
+		return ""
 	}
 	return home
 }

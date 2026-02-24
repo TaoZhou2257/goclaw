@@ -75,8 +75,13 @@ type SystemStatus struct {
 // runStatus displays status information
 func runStatus(cmd *cobra.Command, args []string) {
 	// Create status object
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
 	status := &SystemStatus{
-		SessionDir: filepath.Join(os.Getenv("HOME"), ".goclaw", "sessions"),
+		SessionDir: filepath.Join(homeDir, ".goclaw", "sessions"),
 	}
 
 	// Check gateway status
@@ -267,7 +272,8 @@ func outputStatusText(status *SystemStatus) {
 	if statusVerbose {
 		fmt.Printf("\nVerbose Information:\n")
 		fmt.Printf("  Session Directory: %s\n", status.SessionDir)
-		fmt.Printf("  Configuration: %s\n", filepath.Join(os.Getenv("HOME"), ".goclaw", "config.yaml"))
+		homeDir, _ := os.UserHomeDir()
+		fmt.Printf("  Configuration: %s\n", filepath.Join(homeDir, ".goclaw", "config.yaml"))
 	}
 
 	if statusDebug {

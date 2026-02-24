@@ -171,14 +171,19 @@ func runTUI(cmd *cobra.Command, args []string) {
 	fmt.Println()
 
 	// Create workspace
-	workspace := os.Getenv("HOME") + "/.goclaw/workspace"
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
+		os.Exit(1)
+	}
+	workspace := homeDir + "/.goclaw/workspace"
 
 	// Create message bus
 	messageBus := bus.NewMessageBus(100)
 	defer messageBus.Close()
 
 	// Create session manager
-	sessionDir := os.Getenv("HOME") + "/.goclaw/sessions"
+	sessionDir := homeDir + "/.goclaw/sessions"
 	sessionMgr, err := session.NewManager(sessionDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create session manager: %v\n", err)
@@ -201,7 +206,7 @@ func runTUI(cmd *cobra.Command, args []string) {
 	defer provider.Close()
 
 	// Create skills loader
-	goclawDir := os.Getenv("HOME") + "/.goclaw"
+	goclawDir := homeDir + "/.goclaw"
 	skillsDir := goclawDir + "/skills"
 	skillsLoader := agent.NewSkillsLoader(goclawDir, []string{skillsDir})
 	if err := skillsLoader.Discover(); err != nil {
