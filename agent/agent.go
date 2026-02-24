@@ -24,6 +24,7 @@ type Agent struct {
 	context      *ContextBuilder
 	workspace    string
 	skillsLoader *SkillsLoader
+	helper       *AgentHelper
 
 	mu        sync.RWMutex
 	state     *AgentState
@@ -83,14 +84,16 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 		Skills:           skills,
 		LoadedSkills:     state.LoadedSkills,
 		ContextBuilder:   cfg.Context,
-		GetSteeringMessages: func() ([]AgentMessage, error) {
-			state := state // Capture state
-			return state.DequeueSteeringMessages(), nil
-		},
-		GetFollowUpMessages: func() ([]AgentMessage, error) {
-			state := state // Capture state
-			return state.DequeueFollowUpMessages(), nil
-		},
+		GetSteeringMessages: func(s *AgentState) func() ([]AgentMessage, error) {
+			return func() ([]AgentMessage, error) {
+				return s.DequeueSteeringMessages(), nil
+			}
+		}(state),
+		GetFollowUpMessages: func(s *AgentState) func() ([]AgentMessage, error) {
+			return func() ([]AgentMessage, error) {
+				return s.DequeueFollowUpMessages(), nil
+			}
+		}(state),
 	}
 
 	orchestrator := NewOrchestrator(loopConfig, state)
@@ -104,6 +107,7 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 		context:      cfg.Context,
 		workspace:    cfg.Workspace,
 		skillsLoader: cfg.SkillsLoader,
+		helper:       NewAgentHelper(cfg.SessionMgr),
 		state:        state,
 		eventSubs:    make([]chan *Event, 0),
 		running:      false,
@@ -139,6 +143,7 @@ func (a *Agent) Stop() error {
 
 	logger.Info("Stopping agent")
 	a.orchestrator.Stop()
+	a.cleanupSubscriptions()
 	return nil
 }
 
@@ -160,10 +165,8 @@ func (a *Agent) Prompt(ctx context.Context, content string) error {
 		return err
 	}
 
-	// Update state
-	a.mu.Lock()
+	// Update state (already have lock from above)
 	a.state.Messages = finalMessages
-	a.mu.Unlock()
 
 	// Publish final response
 	if len(finalMessages) > 0 {
@@ -206,13 +209,8 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 		zap.String("chat_id", msg.ChatID),
 	)
 
-	// Generate fresh session key with timestamp for new sessions
+	// Generate session key
 	sessionKey := msg.SessionKey()
-	if msg.ChatID == "default" || msg.ChatID == "" {
-		// For CLI/default chat, always create a fresh session with timestamp
-		sessionKey = fmt.Sprintf("%s:%d", msg.Channel, time.Now().Unix())
-		logger.Info("Creating fresh session", zap.String("session_key", sessionKey))
-	}
 
 	// Get or create session
 	sess, err := a.sessionMgr.GetOrCreate(sessionKey)
@@ -240,8 +238,13 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 		}
 	}
 
+	// Load history messages and add current message
+	history := sess.GetHistory(-1) // -1 means load all history
+	historyAgentMsgs := sessionMessagesToAgentMessages(history)
+	allMessages := append(historyAgentMsgs, agentMsg)
+
 	// Run agent
-	finalMessages, err := a.orchestrator.Run(ctx, []AgentMessage{agentMsg})
+	finalMessages, err := a.orchestrator.Run(ctx, allMessages)
 	if err != nil {
 		logger.Error("Agent execution failed", zap.Error(err))
 
@@ -250,8 +253,13 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 		return
 	}
 
-	// Update session
-	a.updateSession(sess, finalMessages)
+	// Update session (only save new messages, skip history)
+	// orchestrator.Run returns all messages including input and history
+	historyLen := len(history)
+	if len(finalMessages) > historyLen {
+		newMessages := finalMessages[historyLen:]
+		a.updateSession(sess, newMessages)
+	}
 
 	// Publish response
 	if len(finalMessages) > 0 {
@@ -264,46 +272,7 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 
 // updateSession updates the session with new messages
 func (a *Agent) updateSession(sess *session.Session, messages []AgentMessage) {
-	for _, msg := range messages {
-		sessMsg := session.Message{
-			Role:      string(msg.Role),
-			Content:   extractTextContent(msg),
-			Timestamp: time.Unix(extractTimestamp(msg)/1000, 0),
-		}
-
-		// Handle tool calls
-		if msg.Role == RoleAssistant {
-			for _, block := range msg.Content {
-				if tc, ok := block.(ToolCallContent); ok {
-					sessMsg.ToolCalls = append(sessMsg.ToolCalls, session.ToolCall{
-						ID:     tc.ID,
-						Name:   tc.Name,
-						Params: tc.Arguments,
-					})
-				}
-			}
-		}
-
-		// Handle tool results
-		if msg.Role == RoleToolResult {
-			if id, ok := msg.Metadata["tool_call_id"].(string); ok {
-				sessMsg.ToolCallID = id
-			}
-			// Preserve tool_name in metadata for validation
-			if toolName, ok := msg.Metadata["tool_name"].(string); ok {
-				if sessMsg.Metadata == nil {
-					sessMsg.Metadata = make(map[string]interface{})
-				}
-				sessMsg.Metadata["tool_name"] = toolName
-			}
-		}
-
-		sess.AddMessage(sessMsg)
-	}
-
-	if err := a.sessionMgr.Save(sess); err != nil {
-		logger.Error("Failed to save session", zap.Error(err))
-	}
+	_ = a.helper.UpdateSession(sess, messages, &UpdateSessionOptions{SaveImmediately: true})
 }
 
 // publishResponse publishes the agent response to the bus
@@ -353,6 +322,8 @@ func (a *Agent) publishToBus(ctx context.Context, channel, chatID string, msg Ag
 }
 
 // Subscribe subscribes to agent events
+// Returns a read-only channel. Call Unsubscribe to clean up.
+// IMPORTANT: Always call Unsubscribe when done to prevent memory leaks.
 func (a *Agent) Subscribe() <-chan *Event {
 	ch := make(chan *Event, 10)
 
@@ -364,17 +335,33 @@ func (a *Agent) Subscribe() <-chan *Event {
 }
 
 // Unsubscribe removes an event subscription
+// The channel will be removed from the subscriber list but not closed
+// (since it's receive-only from the caller's perspective).
+// Any pending events in the channel can still be read by the caller.
 func (a *Agent) Unsubscribe(ch <-chan *Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	for i, sub := range a.eventSubs {
 		if sub == ch {
+			// Remove from slice
 			a.eventSubs = append(a.eventSubs[:i], a.eventSubs[i+1:]...)
-			// Don't close receive-only channel
 			break
 		}
 	}
+}
+
+// cleanupSubscriptions removes all subscriptions and closes their channels
+// This should only be called when the agent is being shut down.
+func (a *Agent) cleanupSubscriptions() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Close all subscriber channels
+	for _, ch := range a.eventSubs {
+		close(ch)
+	}
+	a.eventSubs = make([]chan *Event, 0)
 }
 
 // dispatchEvents sends events to all subscribers
@@ -399,7 +386,7 @@ func (a *Agent) dispatchEvents(ctx context.Context) {
 				select {
 				case ch <- event:
 				default:
-					// Channel full, skip
+					// Channel full or closed, skip without blocking
 				}
 			}
 		}

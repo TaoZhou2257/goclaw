@@ -76,26 +76,38 @@ type SkillInstall struct {
 
 // SkillsLoader 技能加载器
 type SkillsLoader struct {
-	workspace    string
-	skillsDirs   []string
-	skills       map[string]*Skill
-	alwaysSkills []string
-	autoInstall  bool // 是否启用自动安装依赖
+	workspace      string
+	skillsDirs     []string
+	skills         map[string]*Skill
+	alwaysSkills   []string
+	autoInstall    bool          // 是否启用自动安装依赖
+	installTimeout time.Duration // 安装超时时间
 }
+
+// Default installation timeout
+const (
+	DefaultInstallTimeout = 5 * time.Minute
+)
 
 // NewSkillsLoader 创建技能加载器
 func NewSkillsLoader(workspace string, skillsDirs []string) *SkillsLoader {
 	return &SkillsLoader{
-		workspace:   workspace,
-		skillsDirs:  skillsDirs,
-		skills:      make(map[string]*Skill),
-		autoInstall: os.Getenv("GOCLAW_SKILL_AUTO_INSTALL") == "true",
+		workspace:      workspace,
+		skillsDirs:     skillsDirs,
+		skills:         make(map[string]*Skill),
+		autoInstall:    os.Getenv("GOCLAW_SKILL_AUTO_INSTALL") == "true",
+		installTimeout: DefaultInstallTimeout,
 	}
 }
 
 // SetAutoInstall 设置是否启用自动安装
 func (l *SkillsLoader) SetAutoInstall(enabled bool) {
 	l.autoInstall = enabled
+}
+
+// SetInstallTimeout 设置安装超时时间
+func (l *SkillsLoader) SetInstallTimeout(timeout time.Duration) {
+	l.installTimeout = timeout
 }
 
 // Discover 发现技能
@@ -477,7 +489,7 @@ func (l *SkillsLoader) tryInstallBinary(skill *Skill, bin string) error {
 	}
 
 	// 执行安装，带超时
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), l.installTimeout)
 	defer cancel()
 
 	output, err := cmd.CombinedOutput()
@@ -621,7 +633,7 @@ func (l *SkillsLoader) checkPackageInstalled(pkgType PackageType, pkg string) er
 func (l *SkillsLoader) tryInstallPackage(pkgType PackageType, pkg string) error {
 	logger.Info("Installing package", zap.String("type", string(pkgType)), zap.String("package", pkg))
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), l.installTimeout)
 	defer cancel()
 
 	var cmd *exec.Cmd

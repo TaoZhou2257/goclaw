@@ -193,11 +193,7 @@ func IsFatal(err error) bool {
 		ErrCodeSessionCorrupted,
 	}
 
-	if slices.Contains(fatalCodes, code) {
-		return true
-	}
-
-	return false
+	return slices.Contains(fatalCodes, code)
 }
 
 // GetUserMessage returns a user-friendly error message

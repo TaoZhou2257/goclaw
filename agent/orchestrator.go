@@ -11,11 +11,23 @@ import (
 	"go.uber.org/zap"
 )
 
+// Context keys for passing agent state through context
+type contextKey string
+
+const (
+	SessionKeyContextKey contextKey = "session_key"
+	AgentIDContextKey    contextKey = "agent_id"
+)
+
 // Orchestrator manages the agent execution loop
 // Based on pi-mono's agent-loop.ts design
+//
+// Concurrency: Each Run() call creates a cloned state for isolation.
+// The original state stored in o.state is used only as a template.
+// Multiple Run() calls can execute concurrently safely.
 type Orchestrator struct {
 	config     *LoopConfig
-	state      *AgentState
+	state      *AgentState // Initial state, used as template for each Run
 	eventChan  chan *Event
 	cancelFunc context.CancelFunc
 }
@@ -283,8 +295,11 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 		} else {
 			state.AddPendingTool(tc.ID)
 
+			// Create context with session key for tools to access
+			toolCtx := context.WithValue(ctx, SessionKeyContextKey, state.SessionKey)
+
 			// Execute tool with streaming support
-			result, err = tool.Execute(ctx, tc.Arguments, func(partial ToolResult) {
+			result, err = tool.Execute(toolCtx, tc.Arguments, func(partial ToolResult) {
 				// Emit update event
 				o.emit(NewEvent(EventToolExecutionUpdate).
 					WithToolExecution(tc.ID, tc.Name, tc.Arguments).
@@ -400,12 +415,16 @@ func (o *Orchestrator) fetchFollowUpMessages() []AgentMessage {
 }
 
 // Stop stops the orchestrator
+// Safe to call multiple times
 func (o *Orchestrator) Stop() {
 	if o.cancelFunc != nil {
 		o.cancelFunc()
+		o.cancelFunc = nil
 	}
 	if o.eventChan != nil {
-		close(o.eventChan)
+		ch := o.eventChan
+		o.eventChan = nil
+		close(ch)
 	}
 }
 

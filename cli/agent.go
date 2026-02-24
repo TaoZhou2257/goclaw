@@ -197,21 +197,7 @@ func runAgent(cmd *cobra.Command, args []string) {
 		sessionKey = agentChannel + ":default"
 	}
 
-	// Get or create session
-	sess, err := sessionMgr.GetOrCreate(sessionKey)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get session: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Add user message to session
-	sess.AddMessage(session.Message{
-		Role:      "user",
-		Content:   agentMessage,
-		Timestamp: time.Now(),
-	})
-
-	// Create new agent
+	// Create new agent first
 	agentInstance, err := agent.NewAgent(&agent.NewAgentConfig{
 		Bus:          messageBus,
 		Provider:     provider,
@@ -279,17 +265,7 @@ func runAgent(cmd *cobra.Command, args []string) {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to stop agent: %v\n", err)
 	}
 
-	// Add assistant response to session
-	sess.AddMessage(session.Message{
-		Role:      "assistant",
-		Content:   response,
-		Timestamp: time.Now(),
-	})
-
-	// Save session
-	if err := sessionMgr.Save(sess); err != nil && agentVerbose {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to save session: %v\n", err)
-	}
+	// Note: Messages are already saved to session by Agent.handleInboundMessage
 
 	// Output response
 	if agentJSON {

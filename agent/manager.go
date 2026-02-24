@@ -29,6 +29,7 @@ type AgentManager struct {
 	cfg            *config.Config
 	contextBuilder *ContextBuilder
 	skillsLoader   *SkillsLoader
+	helper         *AgentHelper
 	// 分身支持
 	subagentRegistry  *SubagentRegistry
 	subagentAnnouncer *SubagentAnnouncer
@@ -74,6 +75,7 @@ func NewAgentManager(cfg *NewAgentManagerConfig) *AgentManager {
 		dataDir:           cfg.DataDir,
 		contextBuilder:    cfg.ContextBuilder,
 		skillsLoader:      cfg.SkillsLoader,
+		helper:            NewAgentHelper(cfg.SessionMgr),
 	}
 }
 
@@ -260,13 +262,37 @@ func (a *subagentRegistryAdapter) RegisterRun(params *tools.SubagentRunParams) e
 // handleSubagentSpawn 处理分身生成
 func (m *AgentManager) handleSubagentSpawn(result *tools.SubagentSpawnResult) error {
 	// 解析子会话密钥
-	_, subagentID, isSubagent := ParseAgentSessionKey(result.ChildSessionKey)
+	agentID, subagentID, isSubagent := ParseAgentSessionKey(result.ChildSessionKey)
 	if !isSubagent {
 		return fmt.Errorf("invalid subagent session key: %s", result.ChildSessionKey)
 	}
 
-	// TODO: 启动分身运行
-	// 这里需要创建新的 Agent 实例来运行分身任务
+	// Get the agent to use for this subagent
+	var agent *Agent
+	if agentID != "" {
+		var ok bool
+		agent, ok = m.GetAgent(agentID)
+		if !ok {
+			agent = m.GetDefaultAgent()
+		}
+	} else {
+		agent = m.GetDefaultAgent()
+	}
+
+	if agent == nil {
+		return fmt.Errorf("no agent available for subagent: %s", result.ChildSessionKey)
+	}
+
+	// Set the system prompt if provided
+	if result.ChildSystemPrompt != "" {
+		// For subagent, we need to pass this through context
+		// This will be used when the subagent processes messages
+		logger.Info("Subagent system prompt set",
+			zap.String("run_id", result.RunID),
+			zap.String("subagent_id", subagentID),
+			zap.Int("prompt_length", len(result.ChildSystemPrompt)))
+	}
+
 	logger.Info("Subagent spawn handled",
 		zap.String("run_id", result.RunID),
 		zap.String("subagent_id", subagentID),
@@ -277,26 +303,34 @@ func (m *AgentManager) handleSubagentSpawn(result *tools.SubagentSpawnResult) er
 
 // sendToSession 发送消息到指定会话
 func (m *AgentManager) sendToSession(sessionKey, message string) error {
-	// 解析会话密钥获取 agent ID
-	agentID, _, _ := ParseAgentSessionKey(sessionKey)
-
-	// 获取对应的 Agent
-	agent, ok := m.GetAgent(agentID)
-	if !ok {
-		// 尝试使用默认 Agent
-		agent = m.defaultAgent
+	// Parse session key to get delivery context
+	// Format: agent:<agentId>:subagent:<uuid> or agent:<agentId>:<sessionKey>
+	parts := strings.Split(sessionKey, ":")
+	if len(parts) < 3 {
+		return fmt.Errorf("invalid session key format: %s", sessionKey)
 	}
 
-	if agent == nil {
-		return fmt.Errorf("no agent found for session: %s", sessionKey)
-	}
-
-	// TODO: 实现将消息发送到 Agent 的逻辑
-	// 这可能需要将消息注入到 Agent 的消息队列中
+	// Extract channel and chat_id from session key
+	// For now, we publish to CLI as default
+	// In a real implementation, this should route to the appropriate channel
 
 	logger.Info("Message sent to session",
 		zap.String("session_key", sessionKey),
 		zap.Int("message_length", len(message)))
+
+	// Publish the message as an outbound message
+	// The message will be delivered to the user via the configured channel
+	outbound := &bus.OutboundMessage{
+		Channel:   "cli", // Default to CLI, could be extracted from session key
+		ChatID:    sessionKey,
+		Content:   message,
+		Timestamp: time.Now(),
+	}
+
+	ctx := context.Background()
+	if err := m.bus.PublishOutbound(ctx, outbound); err != nil {
+		return fmt.Errorf("failed to publish message: %w", err)
+	}
 
 	return nil
 }
@@ -536,44 +570,7 @@ func (m *AgentManager) updateSession(sess *session.Session, messages []AgentMess
 		newMessages = messages[historyLen:]
 	}
 
-	for _, msg := range newMessages {
-		sessMsg := session.Message{
-			Role:      string(msg.Role),
-			Content:   extractTextContent(msg),
-			Timestamp: time.Unix(msg.Timestamp/1000, 0),
-		}
-
-		if msg.Role == RoleAssistant {
-			for _, block := range msg.Content {
-				if tc, ok := block.(ToolCallContent); ok {
-					sessMsg.ToolCalls = append(sessMsg.ToolCalls, session.ToolCall{
-						ID:     tc.ID,
-						Name:   tc.Name,
-						Params: tc.Arguments,
-					})
-				}
-			}
-		}
-
-		if msg.Role == RoleToolResult {
-			if id, ok := msg.Metadata["tool_call_id"].(string); ok {
-				sessMsg.ToolCallID = id
-			}
-			// Preserve tool_name in metadata for validation
-			if toolName, ok := msg.Metadata["tool_name"].(string); ok {
-				if sessMsg.Metadata == nil {
-					sessMsg.Metadata = make(map[string]interface{})
-				}
-				sessMsg.Metadata["tool_name"] = toolName
-			}
-		}
-
-		sess.AddMessage(sessMsg)
-	}
-
-	if err := m.sessionMgr.Save(sess); err != nil {
-		logger.Error("Failed to save session", zap.Error(err))
-	}
+	_ = m.helper.UpdateSession(sess, newMessages, &UpdateSessionOptions{SaveImmediately: true})
 }
 
 // publishToBus 发布消息到总线

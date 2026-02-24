@@ -277,7 +277,7 @@ func BenchmarkStoreCredentials(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		profile := "profile-" + string(rune(i%26))
-		manager.StoreCredentials(profile, creds)
+		_ = manager.StoreCredentials(profile, creds)
 	}
 }
 
@@ -297,12 +297,12 @@ func BenchmarkGetCredentials(b *testing.B) {
 			Expires:     time.Now().Add(1 * time.Hour),
 			Provider:    "anthropic",
 		}
-		manager.StoreCredentials("profile-"+string(rune(i%26)), creds)
+		_ = manager.StoreCredentials("profile-"+string(rune(i%26)), creds)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		profile := "profile-" + string(rune(i%100))
-		manager.GetCredentials(profile)
+		_, _ = manager.GetCredentials(profile)
 	}
 }

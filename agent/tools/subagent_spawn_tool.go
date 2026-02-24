@@ -157,12 +157,13 @@ type SubagentSpawnToolParams struct {
 
 // SubagentSpawnResult 分身生成结果
 type SubagentSpawnResult struct {
-	Status          string `json:"status"` // accepted, forbidden, error
-	ChildSessionKey string `json:"child_session_key,omitempty"`
-	RunID           string `json:"run_id,omitempty"`
-	Error           string `json:"error,omitempty"`
-	ModelApplied    bool   `json:"model_applied,omitempty"`
-	Warning         string `json:"warning,omitempty"`
+	Status            string `json:"status"` // accepted, forbidden, error
+	ChildSessionKey   string `json:"child_session_key,omitempty"`
+	RunID             string `json:"run_id,omitempty"`
+	Error             string `json:"error,omitempty"`
+	ModelApplied      bool   `json:"model_applied,omitempty"`
+	Warning           string `json:"warning,omitempty"`
+	ChildSystemPrompt string `json:"child_system_prompt,omitempty"` // System prompt for the child agent
 }
 
 // SubagentRegistryInterface 分身注册表接口
@@ -281,9 +282,13 @@ func (t *SubagentSpawnTool) Execute(ctx context.Context, params map[string]inter
 		spawnParams.Cleanup = "keep"
 	}
 
-	// 获取请求者会话信息（从上下文获取）
-	// TODO: 从 context 中获取请求者会话密钥、agent ID 等
-	requesterSessionKey := "main" // 默认值
+	// Get requester session info from context
+	requesterSessionKey := "main" // default
+	if sk := ctx.Value("session_key"); sk != nil {
+		if key, ok := sk.(string); ok {
+			requesterSessionKey = key
+		}
+	}
 	requesterAgentID := t.getAgentID(requesterSessionKey)
 	if requesterAgentID == "" {
 		requesterAgentID = "default"
@@ -358,9 +363,10 @@ func (t *SubagentSpawnTool) Execute(ctx context.Context, params map[string]inter
 	// 调用生成回调
 	if t.onSpawn != nil {
 		spawnResult := &SubagentSpawnResult{
-			Status:          "accepted",
-			ChildSessionKey: childSessionKey,
-			RunID:           runID,
+			Status:            "accepted",
+			ChildSessionKey:   childSessionKey,
+			RunID:             runID,
+			ChildSystemPrompt: childSystemPrompt,
 		}
 		if err := t.onSpawn(spawnResult); err != nil {
 			logger.Error("Failed to handle subagent spawn",
@@ -371,9 +377,10 @@ func (t *SubagentSpawnTool) Execute(ctx context.Context, params map[string]inter
 
 	// 构建结果
 	result := &SubagentSpawnResult{
-		Status:          "accepted",
-		ChildSessionKey: childSessionKey,
-		RunID:           runID,
+		Status:            "accepted",
+		ChildSessionKey:   childSessionKey,
+		RunID:             runID,
+		ChildSystemPrompt: childSystemPrompt,
 	}
 
 	logger.Info("Subagent spawned",
