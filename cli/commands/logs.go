@@ -93,13 +93,21 @@ func detectLogPath() string {
 		return ""
 	}
 
-	// Common log file locations
+	// Common log file locations (platform-agnostic)
 	candidates := []string{
 		filepath.Join(home, ".goclaw", "logs", "goclaw.log"),
 		filepath.Join(home, ".goclaw", "goclaw.log"),
-		filepath.Join("/var", "log", "goclaw.log"),
 		"goclaw.log",
 		"logs/goclaw.log",
+	}
+
+	// On Unix-like systems, also check system log directory
+	// Note: /var/log doesn't exist on Windows
+	if home != "" {
+		// Check if running on Unix-like system by trying to access /var
+		if _, err := os.Stat("/var/log"); err == nil {
+			candidates = append(candidates, filepath.Join("/var", "log", "goclaw.log"))
+		}
 	}
 
 	for _, candidate := range candidates {

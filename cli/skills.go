@@ -529,7 +529,37 @@ func runSkillsInstall(cmd *cobra.Command, args []string) {
 }
 
 func copyDir(src, dst string) error {
-	return exec.Command("cp", "-r", src, dst).Run()
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get the relative path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory
+		if relPath == "." {
+			return nil
+		}
+
+		// Build destination path
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			// Create directory
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// Copy file
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dstPath, data, info.Mode())
+	})
 }
 
 func runSkillsUpdate(cmd *cobra.Command, args []string) {
