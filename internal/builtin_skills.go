@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 )
 
@@ -72,7 +73,9 @@ func EnsureBuiltinSkills() error {
 
 // copySingleSkill 复制单个技能
 func copySingleSkill(skillName, dstDir string) error {
-	srcDir := filepath.Join("builtin_skills", skillName)
+	// Use path.Join instead of filepath.Join for embedded filesystem paths
+	// because embed.FS always uses forward slashes (/) regardless of OS
+	srcDir := path.Join("builtin_skills", skillName)
 
 	// 创建目标目录
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
@@ -165,7 +168,9 @@ func copyBuiltinSkills(targetDir string) error {
 		}
 
 		skillName := entry.Name()
-		srcDir := filepath.Join("builtin_skills", skillName)
+		// Use path.Join instead of filepath.Join for embedded filesystem paths
+		// because embed.FS always uses forward slashes (/) regardless of OS
+		srcDir := path.Join("builtin_skills", skillName)
 		dstDir := filepath.Join(targetDir, skillName)
 
 		// 创建目标目录
