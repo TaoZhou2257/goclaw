@@ -325,9 +325,11 @@ type WebToolConfig struct {
 
 // BrowserToolConfig 浏览器工具配置
 type BrowserToolConfig struct {
-	Enabled  bool `mapstructure:"enabled" json:"enabled"`
-	Headless bool `mapstructure:"headless" json:"headless"`
-	Timeout  int  `mapstructure:"timeout" json:"timeout"`
+	Enabled   bool   `mapstructure:"enabled" json:"enabled"`
+	Headless  bool   `mapstructure:"headless" json:"headless"`
+	Timeout   int    `mapstructure:"timeout" json:"timeout"`
+	RelayURL  string `mapstructure:"relay_url" json:"relay_url"`   // OpenClaw relay server URL (e.g., ws://127.0.0.1:18789)
+	RelayMode string `mapstructure:"relay_mode" json:"relay_mode"` // Connection mode: "auto", "direct", "relay"
 }
 
 // ApprovalsConfig 审批配置

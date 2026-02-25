@@ -19,15 +19,60 @@ import (
 	"go.uber.org/zap"
 )
 
-// BrowserTool Browser tool using Chrome DevTools Protocol
+// CDPExecutor CDP 命令执行器接口（支持直接 CDP 和 Relay 两种模式）
+type CDPExecutor interface {
+	ExecuteCDP(ctx context.Context, method string, params map[string]interface{}) (map[string]interface{}, error)
+	IsDirectMode() bool
+	GetDirectClient() (*cdp.Client, error)
+}
+
+// BrowserCDPExecutor CDP 执行器实现
+type BrowserCDPExecutor struct {
+	session *BrowserSessionManager
+}
+
+// ExecuteCDP 执行 CDP 命令
+func (e *BrowserCDPExecutor) ExecuteCDP(ctx context.Context, method string, params map[string]interface{}) (map[string]interface{}, error) {
+	// 如果是 Relay 模式，使用 Relay 客户端
+	if e.session.IsRelayMode() {
+		relayClient := e.session.GetRelayClient()
+		if relayClient == nil || !relayClient.IsReady() {
+			return nil, fmt.Errorf("relay session not ready")
+		}
+		return relayClient.Execute(ctx, method, params)
+	}
+
+	// 直接模式需要通过 CDP 客户端执行
+	// 这里返回错误，因为直接 CDP 模式应该使用 GetDirectClient
+	return nil, fmt.Errorf("direct CDP mode should use GetDirectClient")
+}
+
+// IsDirectMode 检查是否为直接模式
+func (e *BrowserCDPExecutor) IsDirectMode() bool {
+	return !e.session.IsRelayMode()
+}
+
+// GetDirectClient 获取直接 CDP 客户端
+func (e *BrowserCDPExecutor) GetDirectClient() (*cdp.Client, error) {
+	return e.session.GetClient()
+}
+
+// BrowserTool Browser tool using Chrome DevTools Protocol or OpenClaw Relay
 type BrowserTool struct {
-	headless  bool
-	timeout   time.Duration
-	outputDir string // 固定输出目录，截图将保存到这里
+	headless    bool
+	timeout     time.Duration
+	outputDir   string   // 固定输出目录，截图将保存到这里
+	relayURL    string   // OpenClaw Relay URL
+	relayMode   string   // Connection mode: "auto", "direct", "relay"
 }
 
 // NewBrowserTool Create browser tool
 func NewBrowserTool(headless bool, timeout int) *BrowserTool {
+	return NewBrowserToolWithRelay(headless, timeout, "", "auto")
+}
+
+// NewBrowserToolWithRelay Create browser tool with Relay support
+func NewBrowserToolWithRelay(headless bool, timeout int, relayURL, relayMode string) *BrowserTool {
 	var t time.Duration
 	if timeout > 0 {
 		t = time.Duration(timeout) * time.Second
@@ -43,6 +88,8 @@ func NewBrowserTool(headless bool, timeout int) *BrowserTool {
 		headless:  headless,
 		timeout:   t,
 		outputDir: outputDir,
+		relayURL:  relayURL,
+		relayMode: relayMode,
 	}
 }
 
@@ -73,11 +120,28 @@ func (b *BrowserTool) BrowserNavigate(ctx context.Context, params map[string]int
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
-		if err := sessionMgr.Start(b.timeout); err != nil {
+		mode := ModeAuto
+		if b.relayMode != "" {
+			switch b.relayMode {
+			case "direct":
+				mode = ModeDirect
+			case "relay":
+				mode = ModeRelay
+			case "auto":
+				mode = ModeAuto
+			}
+		}
+		if err := sessionMgr.StartWithMode(b.timeout, b.relayURL, mode); err != nil {
 			return "", fmt.Errorf("failed to start browser session: %w", err)
 		}
 	}
 
+	// Relay 模式下的处理
+	if sessionMgr.IsRelayMode() {
+		return b.navigateViaRelay(ctx, urlStr)
+	}
+
+	// 直接 CDP 模式下的处理
 	client, err := sessionMgr.GetClient()
 	if err != nil {
 		return "", fmt.Errorf("failed to get browser client: %w", err)
@@ -115,6 +179,27 @@ func (b *BrowserTool) BrowserNavigate(ctx context.Context, params map[string]int
 	return fmt.Sprintf("Navigated to: %s\nFrame ID: %s\nPage size: %d bytes", urlStr, nav.FrameID, len(html.OuterHTML)), nil
 }
 
+// navigateViaRelay 通过 Relay 执行导航
+func (b *BrowserTool) navigateViaRelay(ctx context.Context, urlStr string) (string, error) {
+	sessionMgr := GetBrowserSession()
+	relayClient := sessionMgr.GetRelayClient()
+	if relayClient == nil {
+		return "", fmt.Errorf("relay client not available")
+	}
+
+	params := map[string]interface{}{
+		"url": urlStr,
+	}
+
+	result, err := relayClient.Execute(ctx, "Page.navigate", params)
+	if err != nil {
+		return "", fmt.Errorf("failed to navigate via relay: %w", err)
+	}
+
+	frameID, _ := result["frameId"].(string)
+	return fmt.Sprintf("Navigated to: %s (via Relay)\nFrame ID: %s", urlStr, frameID), nil
+}
+
 // BrowserScreenshot Take screenshot of page
 func (b *BrowserTool) BrowserScreenshot(ctx context.Context, params map[string]interface{}) (string, error) {
 	var urlStr string
@@ -141,6 +226,12 @@ func (b *BrowserTool) BrowserScreenshot(ctx context.Context, params map[string]i
 		return "", fmt.Errorf("browser session not ready")
 	}
 
+	// Relay 模式下的处理
+	if sessionMgr.IsRelayMode() {
+		return b.screenshotViaRelay(ctx, urlStr, width, height)
+	}
+
+	// 直接 CDP 模式下的处理
 	client, err := sessionMgr.GetClient()
 	if err != nil {
 		return "", fmt.Errorf("failed to get browser client: %w", err)
@@ -187,6 +278,65 @@ func (b *BrowserTool) BrowserScreenshot(ctx context.Context, params map[string]i
 
 	return fmt.Sprintf("Screenshot saved to: %s\nURL: %s\nBase64 length: %d bytes\nImage URL: file://%s",
 		filepath, currentURL, len(base64Str), filepath), nil
+}
+
+// screenshotViaRelay 通过 Relay 执行截图
+func (b *BrowserTool) screenshotViaRelay(ctx context.Context, urlStr string, width, height int) (string, error) {
+	sessionMgr := GetBrowserSession()
+	relayClient := sessionMgr.GetRelayClient()
+	if relayClient == nil {
+		return "", fmt.Errorf("relay client not available")
+	}
+
+	// 设置视口大小
+	viewportParams := map[string]interface{}{
+		"width":  width,
+		"height": height,
+		"deviceScaleFactor": 1.0,
+		"mobile": false,
+	}
+	_, err := relayClient.Execute(ctx, "Emulation.setDeviceMetricsOverride", viewportParams)
+	if err != nil {
+		logger.Warn("Failed to set viewport size via relay", zap.Error(err))
+	}
+
+	// 如果提供了 URL，先导航
+	if urlStr != "" {
+		navParams := map[string]interface{}{"url": urlStr}
+		_, err := relayClient.Execute(ctx, "Page.navigate", navParams)
+		if err != nil {
+			return "", fmt.Errorf("failed to navigate via relay: %w", err)
+		}
+	}
+
+	// 捕获截图
+	captureParams := map[string]interface{}{
+		"format": "png",
+	}
+	result, err := relayClient.Execute(ctx, "Page.captureScreenshot", captureParams)
+	if err != nil {
+		return "", fmt.Errorf("failed to capture screenshot via relay: %w", err)
+	}
+
+	data, ok := result["data"].(string)
+	if !ok {
+		return "", fmt.Errorf("invalid screenshot data from relay")
+	}
+
+	// 解码 base64 数据
+	screenshotData, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode screenshot data: %w", err)
+	}
+
+	filename := fmt.Sprintf("screenshot_%d.png", time.Now().Unix())
+	filepath := b.outputDir + string(os.PathSeparator) + filename
+	if err := os.WriteFile(filepath, screenshotData, 0644); err != nil {
+		return "", fmt.Errorf("failed to save screenshot: %w", err)
+	}
+
+	return fmt.Sprintf("Screenshot saved to: %s (via Relay)\nBase64 length: %d bytes\nImage URL: file://%s",
+		filepath, len(data), filepath), nil
 }
 
 // BrowserExecuteScript Execute JavaScript in browser

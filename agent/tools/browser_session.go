@@ -17,17 +17,29 @@ import (
 	"go.uber.org/zap"
 )
 
-// BrowserSessionManager 浏览器会话管理器 (使用 Chrome DevTools Protocol)
+// ConnectionMode 浏览器连接模式
+type ConnectionMode string
+
+const (
+	ModeAuto   ConnectionMode = "auto"   // 自动检测（优先尝试 relay，失败则尝试 direct）
+	ModeDirect ConnectionMode = "direct" // 直接 CDP 连接
+	ModeRelay  ConnectionMode = "relay"  // 通过 OpenClaw Relay 连接
+)
+
+// BrowserSessionManager 浏览器会话管理器 (使用 Chrome DevTools Protocol 或 OpenClaw Relay)
 type BrowserSessionManager struct {
-	mu          sync.RWMutex
-	devt        *devtool.DevTools
-	client      *cdp.Client
-	conn        *rpcc.Conn
-	cmd         *exec.Cmd
-	ready       bool
-	chromePath  string
-	userDataDir string
-	remoteURL   string // 远程 Chrome 实例 URL
+	mu             sync.RWMutex
+	devt           *devtool.DevTools
+	client         *cdp.Client
+	conn           *rpcc.Conn
+	cmd            *exec.Cmd
+	ready          bool
+	chromePath     string
+	userDataDir    string
+	remoteURL      string          // 远程 Chrome 实例 URL
+	connectionMode ConnectionMode  // 连接模式
+	relayURL       string          // OpenClaw Relay URL
+	relaySession   *RelaySessionManager // Relay 会话
 }
 
 var sessionManager *BrowserSessionManager
@@ -42,6 +54,11 @@ func GetBrowserSession() *BrowserSessionManager {
 
 // Start 启动浏览器会话
 func (b *BrowserSessionManager) Start(timeout time.Duration) error {
+	return b.StartWithMode(timeout, "", ModeAuto)
+}
+
+// StartWithMode 使用指定模式启动浏览器会话
+func (b *BrowserSessionManager) StartWithMode(timeout time.Duration, relayURL string, mode ConnectionMode) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -49,6 +66,49 @@ func (b *BrowserSessionManager) Start(timeout time.Duration) error {
 		return nil
 	}
 
+	b.relayURL = relayURL
+	b.connectionMode = mode
+
+	// 根据模式决定连接方式
+	switch mode {
+	case ModeRelay:
+		return b.startRelayMode(timeout)
+	case ModeDirect:
+		return b.startDirectMode(timeout)
+	case ModeAuto:
+		// 自动模式：优先尝试 relay，失败则尝试 direct
+		if relayURL != "" {
+			logger.Info("Auto mode: trying OpenClaw Relay first")
+			err := b.startRelayMode(timeout)
+			if err == nil {
+				return nil
+			}
+			logger.Warn("OpenClaw Relay connection failed, falling back to direct CDP", zap.Error(err))
+		}
+		return b.startDirectMode(timeout)
+	default:
+		return fmt.Errorf("unknown connection mode: %s", mode)
+	}
+}
+
+// startRelayMode 启动 Relay 模式
+func (b *BrowserSessionManager) startRelayMode(timeout time.Duration) error {
+	logger.Info("Starting browser session with OpenClaw Relay",
+		zap.String("relay_url", b.relayURL))
+
+	relaySession := GetRelaySession()
+	if err := relaySession.Start(b.relayURL, timeout); err != nil {
+		return fmt.Errorf("failed to start relay session: %w", err)
+	}
+
+	b.relaySession = relaySession
+	b.ready = true
+	logger.Info("Browser session started successfully with OpenClaw Relay")
+	return nil
+}
+
+// startDirectMode 启动直接 CDP 模式
+func (b *BrowserSessionManager) startDirectMode(timeout time.Duration) error {
 	logger.Info("Starting persistent browser session with Chrome DevTools Protocol")
 
 	// 首先尝试连接到已运行的 Chrome 实例
@@ -230,6 +290,27 @@ func (b *BrowserSessionManager) GetClient() (*cdp.Client, error) {
 	return b.client, nil
 }
 
+// GetRelayClient 获取 Relay 客户端
+func (b *BrowserSessionManager) GetRelayClient() *RelaySessionManager {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.relaySession
+}
+
+// GetConnectionMode 获取当前连接模式
+func (b *BrowserSessionManager) GetConnectionMode() ConnectionMode {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.connectionMode
+}
+
+// IsRelayMode 检查是否使用 Relay 模式
+func (b *BrowserSessionManager) IsRelayMode() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.relaySession != nil && b.relaySession.IsReady()
+}
+
 // Stop 停止浏览器会话
 func (b *BrowserSessionManager) Stop() {
 	b.mu.Lock()
@@ -237,6 +318,12 @@ func (b *BrowserSessionManager) Stop() {
 
 	if b.ready {
 		logger.Info("Stopping browser session")
+
+		// 停止 Relay 会话
+		if b.relaySession != nil {
+			b.relaySession.Stop()
+			b.relaySession = nil
+		}
 
 		// 关闭连接
 		if b.conn != nil {
@@ -259,5 +346,7 @@ func (b *BrowserSessionManager) Stop() {
 		b.conn = nil
 		b.cmd = nil
 		b.userDataDir = ""
+		b.connectionMode = ModeAuto
+		b.relayURL = ""
 	}
 }
