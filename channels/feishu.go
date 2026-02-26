@@ -232,22 +232,9 @@ func (c *FeishuChannel) handleMessageReceived(ctx context.Context, event *larkim
 	if event.Event.Message.ChatType != nil {
 		chatType = *event.Event.Message.ChatType
 	}
-	messageType := "unknown"
-	if event.Event.Message.MessageType != nil {
-		messageType = *event.Event.Message.MessageType
-	}
-
-	logger.Info("Feishu message received",
-		zap.String("chat_id", chatID),
-		zap.String("message_id", messageID),
-		zap.String("sender_id", senderID),
-		zap.String("chat_type", chatType),
-		zap.String("message_type", messageType))
 
 	// 检查发送者权限
 	if senderID != "" && !c.IsAllowed(senderID) {
-		logger.Info("Feishu message filtered (not allowed)",
-			zap.String("sender_id", senderID))
 		return
 	}
 
@@ -256,16 +243,10 @@ func (c *FeishuChannel) handleMessageReceived(ctx context.Context, event *larkim
 
 	if isGroupChat {
 		if c.botOpenId == "" {
-			logger.Info("Feishu group message skipped (botOpenId not resolved)",
-				zap.String("chat_id", chatID))
 			return
 		}
 		mentionedBot := c.checkBotMentioned(event.Event.Message)
 		if !mentionedBot {
-			logger.Info("Feishu message filtered (not mentioned bot in group)",
-				zap.String("chat_id", chatID),
-				zap.String("bot_open_id", c.botOpenId),
-				zap.Int("mentions_count", len(event.Event.Message.Mentions)))
 			return
 		}
 	}
@@ -273,14 +254,8 @@ func (c *FeishuChannel) handleMessageReceived(ctx context.Context, event *larkim
 	// 解析消息内容
 	content := c.extractMessageContent(event.Event.Message)
 	if content == "" {
-		logger.Info("Feishu message has no extractable text content", zap.String("message_type", messageType))
 		return
 	}
-
-	logger.Info("Processing Feishu message",
-		zap.String("chat_id", chatID),
-		zap.String("chat_type", chatType),
-		zap.Int("content_length", len(content)))
 
 	// 解析时间戳
 	var timestamp time.Time
@@ -322,11 +297,6 @@ func (c *FeishuChannel) handleMessageReceived(ctx context.Context, event *larkim
 		c.removeTypingIndicator(messageID)
 		return
 	}
-
-	logger.Info("Processed Feishu message",
-		zap.String("message_id", messageID),
-		zap.String("chat_id", chatID),
-		zap.String("sender_id", senderID))
 }
 
 // extractMessageContent 从消息中提取文本内容
@@ -409,9 +379,6 @@ func (c *FeishuChannel) checkBotMentioned(msg *larkim.EventMessage) bool {
 
 		if mention.Id != nil && mention.Id.OpenId != nil {
 			if *mention.Id.OpenId == c.botOpenId {
-				logger.Info("Bot mentioned in message",
-					zap.String("bot_open_id", c.botOpenId),
-					zap.String("mention_open_id", *mention.Id.OpenId))
 				return true
 			}
 		}
@@ -425,7 +392,7 @@ func (c *FeishuChannel) checkBotMentioned(msg *larkim.EventMessage) bool {
 
 // Send 发送消息
 func (c *FeishuChannel) Send(msg *bus.OutboundMessage) error {
-	logger.Info("Feishu sending message",
+	logger.Debug("Feishu sending message",
 		zap.String("chat_id", msg.ChatID),
 		zap.String("reply_to", msg.ReplyTo),
 		zap.Int("content_length", len(msg.Content)))

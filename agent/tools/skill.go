@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"github.com/smallnest/goclaw/internal/logger"
-	"go.uber.org/zap"
 )
 
 // useSkillResult 表示使用技能的结果
@@ -44,9 +43,6 @@ func NewUseSkillTool() *BaseTool {
 				return string(data), nil
 			}
 
-			logger.Info("=== use_skill called ===",
-				zap.String("skill_name", skillName))
-
 			// 返回结果，让 loop.go 处理第二阶段
 			result := useSkillResult{
 				Success:   true,
@@ -54,11 +50,6 @@ func NewUseSkillTool() *BaseTool {
 				Message:   "Skill selected. The full skill content will be loaded.",
 			}
 			data, _ := json.Marshal(result)
-
-			logger.Info("=== use_skill completed ===",
-				zap.String("skill_name", skillName),
-				zap.Bool("success", result.Success),
-				zap.String("result", result.Message))
 
 			return string(data), nil
 		},

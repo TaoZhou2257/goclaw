@@ -67,7 +67,7 @@ func (r *RelayClient) Connect(ctx context.Context) error {
 		return nil
 	}
 
-	logger.Info("Connecting to OpenClaw Browser Relay",
+	logger.Debug("Connecting to OpenClaw Browser Relay",
 		zap.String("url", r.url))
 
 	dialer := websocket.Dialer{
@@ -85,7 +85,7 @@ func (r *RelayClient) Connect(ctx context.Context) error {
 	// 启动消息处理循环
 	go r.messageLoop()
 
-	logger.Info("Connected to OpenClaw Browser Relay successfully")
+	logger.Debug("Connected to OpenClaw Browser Relay successfully")
 
 	return nil
 }
@@ -242,7 +242,7 @@ func (r *RelaySessionManager) Start(relayURL string, timeout time.Duration) erro
 		return nil
 	}
 
-	logger.Info("Starting OpenClaw Browser Relay session")
+	logger.Debug("Starting OpenClaw Browser Relay session")
 
 	client := NewRelayClient(relayURL)
 
@@ -256,7 +256,7 @@ func (r *RelaySessionManager) Start(relayURL string, timeout time.Duration) erro
 	r.client = client
 	r.ready = true
 
-	logger.Info("OpenClaw Browser Relay session started successfully")
+	logger.Debug("OpenClaw Browser Relay session started successfully")
 
 	return nil
 }
@@ -293,7 +293,7 @@ func (r *RelaySessionManager) Stop() {
 	defer r.mu.Unlock()
 
 	if r.ready {
-		logger.Info("Stopping OpenClaw Browser Relay session")
+		logger.Debug("Stopping OpenClaw Browser Relay session")
 
 		if r.client != nil {
 			_ = r.client.Close()

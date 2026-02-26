@@ -43,7 +43,7 @@ func NewOrchestrator(config *LoopConfig, initialState *AgentState) *Orchestrator
 
 // Run starts the agent loop with initial prompts
 func (o *Orchestrator) Run(ctx context.Context, prompts []AgentMessage) ([]AgentMessage, error) {
-	logger.Info("=== Orchestrator Run Start ===",
+	logger.Debug("=== Orchestrator Run Start ===",
 		zap.Int("prompts_count", len(prompts)))
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -61,7 +61,7 @@ func (o *Orchestrator) Run(ctx context.Context, prompts []AgentMessage) ([]Agent
 	// Main loop
 	finalMessages, err := o.runLoop(ctx, currentState)
 
-	logger.Info("=== Orchestrator Run End ===",
+	logger.Debug("=== Orchestrator Run End ===",
 		zap.Int("final_messages_count", len(finalMessages)),
 		zap.Error(err))
 
@@ -163,7 +163,7 @@ func (o *Orchestrator) runLoop(ctx context.Context, state *AgentState) ([]AgentM
 
 // streamAssistantResponse calls the LLM and streams the response
 func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *AgentState) (AgentMessage, error) {
-	logger.Info("=== streamAssistantResponse Start ===",
+	logger.Debug("=== streamAssistantResponse Start ===",
 		zap.Int("message_count", len(state.Messages)),
 		zap.Strings("loaded_skills", state.LoadedSkills))
 
@@ -227,7 +227,7 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 	}
 	fullMessages = append(fullMessages, providerMsgs...)
 
-	logger.Info("=== Calling LLM ===",
+	logger.Debug("=== Calling LLM ===",
 		zap.Int("messages_count", len(fullMessages)),
 		zap.Int("tools_count", len(toolDefs)),
 		zap.Bool("has_loaded_skills", len(state.LoadedSkills) > 0))
@@ -238,7 +238,7 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 		return AgentMessage{}, fmt.Errorf("LLM call failed: %w", err)
 	}
 
-	logger.Info("=== LLM Response Received ===",
+	logger.Debug("=== LLM Response Received ===",
 		zap.Int("content_length", len(response.Content)),
 		zap.Int("tool_calls_count", len(response.ToolCalls)),
 		zap.String("content_preview", truncateString(response.Content, 200)))
@@ -249,7 +249,7 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 	// Convert response to agent message
 	assistantMsg := convertFromProviderResponse(response)
 
-	logger.Info("=== streamAssistantResponse End ===",
+	logger.Debug("=== streamAssistantResponse End ===",
 		zap.Bool("has_tool_calls", len(response.ToolCalls) > 0),
 		zap.Int("tool_calls_count", len(response.ToolCalls)))
 
@@ -260,10 +260,10 @@ func (o *Orchestrator) streamAssistantResponse(ctx context.Context, state *Agent
 func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCallContent, state *AgentState) ([]AgentMessage, []AgentMessage) {
 	results := make([]AgentMessage, 0, len(toolCalls))
 
-	logger.Info("=== Execute Tool Calls Start ===",
+	logger.Debug("=== Execute Tool Calls Start ===",
 		zap.Int("count", len(toolCalls)))
 	for _, tc := range toolCalls {
-		logger.Info("Tool call start",
+		logger.Debug("Tool call start",
 			zap.String("tool_id", tc.ID),
 			zap.String("tool_name", tc.Name),
 			zap.Any("arguments", tc.Arguments))
@@ -319,7 +319,7 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 		} else {
 			// Extract content for logging
 			contentText := extractToolResultContent(result.Content)
-			logger.Info("Tool execution success",
+			logger.Debug("Tool execution success",
 				zap.String("tool_id", tc.ID),
 				zap.String("tool_name", tc.Name),
 				zap.Any("arguments", tc.Arguments),
@@ -355,7 +355,7 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 				}
 				if !alreadyLoaded {
 					state.LoadedSkills = append(state.LoadedSkills, skillName)
-					logger.Info("=== Skill Loaded ===",
+					logger.Debug("=== Skill Loaded ===",
 						zap.String("skill_name", skillName),
 						zap.Int("total_loaded", len(state.LoadedSkills)),
 						zap.Strings("loaded_skills", state.LoadedSkills))
@@ -376,7 +376,7 @@ func (o *Orchestrator) executeToolCalls(ctx context.Context, toolCalls []ToolCal
 		}
 	}
 
-	logger.Info("=== Execute Tool Calls End ===",
+	logger.Debug("=== Execute Tool Calls End ===",
 		zap.Int("count", len(results)))
 	return results, nil
 }

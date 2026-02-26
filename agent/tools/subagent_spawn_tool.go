@@ -383,7 +383,7 @@ func (t *SubagentSpawnTool) Execute(ctx context.Context, params map[string]inter
 		ChildSystemPrompt: childSystemPrompt,
 	}
 
-	logger.Info("Subagent spawned",
+	logger.Debug("Subagent spawned",
 		zap.String("run_id", runID),
 		zap.String("task", spawnParams.Task),
 		zap.String("child_session_key", childSessionKey),

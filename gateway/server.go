@@ -356,7 +356,7 @@ func (s *Server) handleFeishuWebhook(w http.ResponseWriter, r *http.Request) {
 	// 这里我们需要将请求传递给飞书通道处理
 	// 由于接口限制，我们暂时记录日志
 
-	logger.Info("Received Feishu webhook",
+	logger.Debug("Received Feishu webhook",
 		zap.Int("content_length", len(body)),
 	)
 
@@ -400,7 +400,7 @@ func (s *Server) handleGenericWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("Received webhook",
+	logger.Debug("Received webhook",
 		zap.String("channel", channelName),
 		zap.Int("content_length", len(body)),
 	)
@@ -431,7 +431,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// 添加到连接管理
 	s.addConnection(connection)
 
-	logger.Info("WebSocket connection established",
+	logger.Debug("WebSocket connection established",
 		zap.String("session_id", sessionID),
 		zap.String("remote_addr", r.RemoteAddr),
 	)
@@ -482,7 +482,7 @@ func (s *Server) handleWebSocketMessages(conn *Connection) {
 	defer func() {
 		conn.Close()
 		s.removeConnection(conn.ID)
-		logger.Info("WebSocket connection closed",
+		logger.Debug("WebSocket connection closed",
 			zap.String("session_id", conn.ID),
 		)
 	}()
@@ -533,13 +533,13 @@ func (s *Server) handleWebSocketMessages(conn *Connection) {
 
 // broadcastOutbound 广播出站消息到所有 WebSocket 连接
 func (s *Server) broadcastOutbound(ctx context.Context) {
-	logger.Info("Starting WebSocket outbound broadcaster")
+	logger.Debug("Starting WebSocket outbound broadcaster")
 
 	// 订阅出站消息
 	subscription := s.bus.SubscribeOutbound()
 	defer subscription.Unsubscribe()
 
-	logger.Info("WebSocket broadcaster subscribed",
+	logger.Debug("WebSocket broadcaster subscribed",
 		zap.String("subscription_id", subscription.ID))
 
 	busChan := subscription.Channel
@@ -547,11 +547,11 @@ func (s *Server) broadcastOutbound(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("WebSocket outbound broadcaster stopped")
+			logger.Debug("WebSocket outbound broadcaster stopped")
 			return
 		case msg, ok := <-busChan:
 			if !ok {
-				logger.Info("Outbound channel closed, exiting broadcaster")
+				logger.Debug("Outbound channel closed, exiting broadcaster")
 				return
 			}
 			if msg == nil {

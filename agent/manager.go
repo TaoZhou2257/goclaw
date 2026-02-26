@@ -81,9 +81,6 @@ func NewAgentManager(cfg *NewAgentManagerConfig) *AgentManager {
 
 // handleSubagentCompletion 处理分身完成事件
 func (m *AgentManager) handleSubagentCompletion(runID string, record *SubagentRunRecord) {
-	logger.Info("Subagent completed",
-		zap.String("run_id", runID),
-		zap.String("task", record.Task))
 
 	// 启动宣告流程
 	if record.Outcome != nil {
@@ -287,13 +284,13 @@ func (m *AgentManager) handleSubagentSpawn(result *tools.SubagentSpawnResult) er
 	if result.ChildSystemPrompt != "" {
 		// For subagent, we need to pass this through context
 		// This will be used when the subagent processes messages
-		logger.Info("Subagent system prompt set",
+		logger.Debug("Subagent system prompt set",
 			zap.String("run_id", result.RunID),
 			zap.String("subagent_id", subagentID),
 			zap.Int("prompt_length", len(result.ChildSystemPrompt)))
 	}
 
-	logger.Info("Subagent spawn handled",
+	logger.Debug("Subagent spawn handled",
 		zap.String("run_id", result.RunID),
 		zap.String("subagent_id", subagentID),
 		zap.String("child_session_key", result.ChildSessionKey))
@@ -313,8 +310,7 @@ func (m *AgentManager) sendToSession(sessionKey, message string) error {
 	// Extract channel and chat_id from session key
 	// For now, we publish to CLI as default
 	// In a real implementation, this should route to the appropriate channel
-
-	logger.Info("Message sent to session",
+	logger.Debug("Message sent to session",
 		zap.String("session_key", sessionKey),
 		zap.Int("message_length", len(message)))
 
@@ -452,7 +448,7 @@ func (m *AgentManager) RouteInbound(ctx context.Context, msg *bus.InboundMessage
 // handleInboundMessage 处理入站消息
 func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.InboundMessage, agent *Agent) error {
 	// 调用 Agent 处理消息（内部逻辑和 agent.go 中的 handleInboundMessage 类似）
-	logger.Info("Processing inbound message",
+	logger.Debug("Processing inbound message",
 		zap.String("channel", msg.Channel),
 		zap.String("account_id", msg.AccountID),
 		zap.String("chat_id", msg.ChatID))
@@ -461,7 +457,7 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 	sessionKey := fmt.Sprintf("%s:%s:%s", msg.Channel, msg.AccountID, msg.ChatID)
 	if msg.ChatID == "default" || msg.ChatID == "" {
 		sessionKey = fmt.Sprintf("%s:%s:%d", msg.Channel, msg.AccountID, msg.Timestamp.Unix())
-		logger.Info("Creating fresh session", zap.String("session_key", sessionKey))
+		logger.Debug("Creating fresh session", zap.String("session_key", sessionKey))
 	}
 
 	// 获取或创建会话
@@ -497,17 +493,8 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 	historyAgentMsgs := sessionMessagesToAgentMessages(history)
 	allMessages := append(historyAgentMsgs, agentMsg)
 
-	logger.Info("About to call orchestrator.Run",
-		zap.String("session_key", sessionKey),
-		zap.Int("history_count", len(history)),
-		zap.Int("all_messages_count", len(allMessages)))
-
 	// 执行 Agent
 	finalMessages, err := orchestrator.Run(ctx, allMessages)
-	logger.Info("orchestrator.Run returned",
-		zap.String("session_key", sessionKey),
-		zap.Int("final_messages_count", len(finalMessages)),
-		zap.Error(err))
 	if err != nil {
 		// Check if error is related to tool_call_id mismatch (old session format)
 		errStr := err.Error()
@@ -519,7 +506,7 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 			if delErr := m.sessionMgr.Delete(sessionKey); delErr != nil {
 				logger.Error("Failed to clear old session", zap.Error(delErr))
 			} else {
-				logger.Info("Cleared old session, retrying with fresh session")
+				logger.Debug("Cleared old session, retrying with fresh session")
 				// Get fresh session
 				sess, getErr := m.sessionMgr.GetOrCreate(sessionKey)
 				if getErr != nil {

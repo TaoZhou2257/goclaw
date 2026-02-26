@@ -335,7 +335,6 @@ func runStart(cmd *cobra.Command, args []string) {
 	defer scheduler.Stop()
 
 	// 启动出站消息分发
-	logger.Info("About to start outbound message dispatcher")
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -346,7 +345,7 @@ func runStart(cmd *cobra.Command, args []string) {
 		if err := channelMgr.DispatchOutbound(ctx); err != nil {
 			logger.Error("Outbound message dispatcher exited with error", zap.Error(err))
 		} else {
-			logger.Info("Outbound message dispatcher exited normally")
+			logger.Debug("Outbound message dispatcher exited normally")
 		}
 	}()
 

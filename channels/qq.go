@@ -221,10 +221,7 @@ func (c *QQChannel) doConnect(ctx context.Context) error {
 	c.session = wsResp
 	c.mu.Unlock()
 
-	logger.Info("QQ WebSocket URL obtained",
-		zap.String("url", wsResp.URL),
-		zap.String("shards", fmt.Sprintf("%d/%d", wsResp.Shards, wsResp.SessionStartLimit)),
-	)
+	logger.Debug("QQ WebSocket URL obtained")
 
 	// 连接 WebSocket
 	c.connMu.Lock()
@@ -239,7 +236,7 @@ func (c *QQChannel) doConnect(ctx context.Context) error {
 	c.conn = conn
 	c.connMu.Unlock()
 
-	logger.Info("QQ WebSocket connected")
+	logger.Debug("QQ WebSocket connected")
 
 	// 等待 Hello 消息并处理
 	return c.waitForHello(ctx)
@@ -277,7 +274,7 @@ func (c *QQChannel) waitForHello(ctx context.Context) error {
 	}
 
 	c.heartbeatInt = helloData.HeartbeatInterval
-	logger.Info("QQ Hello received", zap.Int("heartbeat_interval", c.heartbeatInt))
+	logger.Debug("QQ Hello received", zap.Int("heartbeat_interval", c.heartbeatInt))
 
 	// 如果有 session_id，尝试 Resume；否则发送 Identify
 	if c.sessionID != "" {
@@ -307,7 +304,7 @@ func (c *QQChannel) sendIdentify() error {
 		return fmt.Errorf("failed to send identify: %w", err)
 	}
 
-	logger.Info("QQ Identify sent", zap.Int("intents", intents))
+	logger.Debug("QQ Identify sent", zap.Int("intents", intents))
 	return nil
 }
 
@@ -329,7 +326,7 @@ func (c *QQChannel) sendResume() error {
 		return fmt.Errorf("failed to send resume: %w", err)
 	}
 
-	logger.Info("QQ Resume sent", zap.String("session_id", c.sessionID), zap.Uint32("seq", c.lastSeq))
+	logger.Debug("QQ Resume sent", zap.String("session_id", c.sessionID), zap.Uint32("seq", c.lastSeq))
 	return nil
 }
 
@@ -376,7 +373,7 @@ func (c *QQChannel) waitForConnection(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("QQ WebSocket context cancelled")
+			logger.Debug("QQ WebSocket context cancelled")
 			return
 		case <-heartbeatTicker.C:
 			c.sendHeartbeat()
@@ -432,7 +429,7 @@ func (c *QQChannel) handleMessage(message []byte) {
 	case 1: // Heartbeat ACK
 		logger.Debug("QQ Heartbeat ACK")
 	case 7: // Reconnect
-		logger.Info("QQ Reconnect requested")
+		logger.Debug("QQ Reconnect requested")
 	default:
 		logger.Debug("QQ WebSocket message", zap.Int("op", payload.Op), zap.String("t", payload.T))
 	}
@@ -444,7 +441,7 @@ func (c *QQChannel) handleDispatch(eventType string, data json.RawMessage) {
 	case "READY":
 		c.handleReady(data)
 	case "RESUMED":
-		logger.Info("QQ Session resumed")
+		logger.Debug("QQ Session resumed")
 	case "C2C_MESSAGE_CREATE":
 		c.handleC2CMessage(data)
 	case "GROUP_AT_MESSAGE_CREATE":
@@ -467,7 +464,7 @@ func (c *QQChannel) handleReady(data json.RawMessage) {
 	}
 
 	c.sessionID = readyData.SessionID
-	logger.Info("QQ Ready", zap.String("session_id", c.sessionID))
+	logger.Debug("QQ Ready", zap.String("session_id", c.sessionID))
 }
 
 // handleC2CMessage 处理 C2C 消息
@@ -497,7 +494,7 @@ func (c *QQChannel) handleC2CMessage(data json.RawMessage) {
 		},
 	}
 
-	logger.Info("QQ C2C message", zap.String("sender", senderID), zap.String("content", event.Content))
+	logger.Debug("QQ C2C message", zap.String("sender", senderID), zap.String("content", event.Content))
 	_ = c.PublishInbound(context.Background(), msg)
 }
 
@@ -530,7 +527,7 @@ func (c *QQChannel) handleGroupATMessage(data json.RawMessage) {
 		},
 	}
 
-	logger.Info("QQ Group @message", zap.String("group", event.GroupOpenID), zap.String("sender", senderID), zap.String("content", event.Content))
+	logger.Debug("QQ Group @message", zap.String("group", event.GroupOpenID), zap.String("sender", senderID), zap.String("content", event.Content))
 	_ = c.PublishInbound(context.Background(), msg)
 }
 
@@ -563,7 +560,7 @@ func (c *QQChannel) handleChannelATMessage(data json.RawMessage) {
 		},
 	}
 
-	logger.Info("QQ Channel @message", zap.String("channel", event.ChannelID), zap.String("sender", senderID), zap.String("content", event.Content))
+	logger.Debug("QQ Channel @message", zap.String("channel", event.ChannelID), zap.String("sender", senderID), zap.String("content", event.Content))
 	_ = c.PublishInbound(context.Background(), msg)
 }
 

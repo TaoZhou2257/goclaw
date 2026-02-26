@@ -92,7 +92,7 @@ func (r *Registry) Execute(ctx context.Context, name string, params map[string]i
 	}
 
 	// 执行工具
-	logger.Info("Executing tool",
+	logger.Debug("Executing tool",
 		zap.String("tool", name),
 		zap.Any("params", params),
 	)
@@ -106,7 +106,7 @@ func (r *Registry) Execute(ctx context.Context, name string, params map[string]i
 		return "", err
 	}
 
-	logger.Info("Tool executed successfully",
+	logger.Debug("Tool executed successfully",
 		zap.String("tool", name),
 		zap.Int("result_length", len(result)),
 	)

@@ -45,7 +45,7 @@ func (b *BrowserCDPTool) BrowserPrintToPDF(ctx context.Context, params map[strin
 		printBackground = p
 	}
 
-	logger.Info("Browser generating PDF",
+	logger.Debug("Browser generating PDF",
 		zap.String("url", urlStr),
 		zap.Bool("landscape", landscape),
 		zap.Bool("print_background", printBackground),
@@ -129,7 +129,7 @@ func (b *BrowserCDPTool) BrowserExtractStructuredData(ctx context.Context, param
 		extractType = t
 	}
 
-	logger.Info("Browser extracting structured data",
+	logger.Debug("Browser extracting structured data",
 		zap.String("url", urlStr),
 		zap.String("type", extractType),
 	)
@@ -349,7 +349,7 @@ func (b *BrowserCDPTool) BrowserEmulateDevice(ctx context.Context, params map[st
 		return "", fmt.Errorf("device parameter is required")
 	}
 
-	logger.Info("Browser emulating device", zap.String("device", device))
+	logger.Debug("Browser emulating device", zap.String("device", device))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -421,7 +421,7 @@ func (b *BrowserCDPTool) BrowserSetViewport(ctx context.Context, params map[stri
 		return "", fmt.Errorf("height parameter is required")
 	}
 
-	logger.Info("Browser setting viewport",
+	logger.Debug("Browser setting viewport",
 		zap.Float64("width", width),
 		zap.Float64("height", height),
 	)

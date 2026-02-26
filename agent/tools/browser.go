@@ -116,7 +116,7 @@ func (b *BrowserTool) BrowserNavigate(ctx context.Context, params map[string]int
 		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 
-	logger.Info("Browser navigating to", zap.String("url", urlStr))
+	logger.Debug("Browser navigating to", zap.String("url", urlStr))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -219,7 +219,7 @@ func (b *BrowserTool) BrowserScreenshot(ctx context.Context, params map[string]i
 		height = 1080
 	}
 
-	logger.Info("Browser screenshot", zap.String("url", urlStr), zap.Int("width", width), zap.Int("height", height))
+	logger.Debug("Browser screenshot", zap.String("url", urlStr), zap.Int("width", width), zap.Int("height", height))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -351,7 +351,7 @@ func (b *BrowserTool) BrowserExecuteScript(ctx context.Context, params map[strin
 		urlStr = u
 	}
 
-	logger.Info("Browser executing script", zap.String("url", urlStr), zap.String("script", script))
+	logger.Debug("Browser executing script", zap.String("url", urlStr), zap.String("script", script))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -402,7 +402,7 @@ func (b *BrowserTool) BrowserClick(ctx context.Context, params map[string]interf
 		urlStr = u
 	}
 
-	logger.Info("Browser clicking element", zap.String("url", urlStr), zap.String("selector", selector))
+	logger.Debug("Browser clicking element", zap.String("url", urlStr), zap.String("selector", selector))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -482,7 +482,7 @@ func (b *BrowserTool) BrowserFillInput(ctx context.Context, params map[string]in
 		urlStr = u
 	}
 
-	logger.Info("Browser filling input", zap.String("url", urlStr), zap.String("selector", selector), zap.String("value", "***"))
+	logger.Debug("Browser filling input", zap.String("url", urlStr), zap.String("selector", selector), zap.String("value", "***"))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {
@@ -543,7 +543,7 @@ func (b *BrowserTool) BrowserGetText(ctx context.Context, params map[string]inte
 		return "", fmt.Errorf("url parameter is required")
 	}
 
-	logger.Info("Browser getting text", zap.String("url", urlStr))
+	logger.Debug("Browser getting text", zap.String("url", urlStr))
 
 	sessionMgr := GetBrowserSession()
 	if !sessionMgr.IsReady() {

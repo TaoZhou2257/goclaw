@@ -78,7 +78,7 @@ func (b *BrowserSessionManager) StartWithMode(timeout time.Duration, relayURL st
 	case ModeAuto:
 		// 自动模式：优先尝试 relay，失败则尝试 direct
 		if relayURL != "" {
-			logger.Info("Auto mode: trying OpenClaw Relay first")
+			logger.Debug("Auto mode: trying OpenClaw Relay first")
 			err := b.startRelayMode(timeout)
 			if err == nil {
 				return nil
@@ -93,7 +93,7 @@ func (b *BrowserSessionManager) StartWithMode(timeout time.Duration, relayURL st
 
 // startRelayMode 启动 Relay 模式
 func (b *BrowserSessionManager) startRelayMode(timeout time.Duration) error {
-	logger.Info("Starting browser session with OpenClaw Relay",
+	logger.Debug("Starting browser session with OpenClaw Relay",
 		zap.String("relay_url", b.relayURL))
 
 	relaySession := GetRelaySession()
@@ -103,22 +103,22 @@ func (b *BrowserSessionManager) startRelayMode(timeout time.Duration) error {
 
 	b.relaySession = relaySession
 	b.ready = true
-	logger.Info("Browser session started successfully with OpenClaw Relay")
+	logger.Debug("Browser session started successfully with OpenClaw Relay")
 	return nil
 }
 
 // startDirectMode 启动直接 CDP 模式
 func (b *BrowserSessionManager) startDirectMode(timeout time.Duration) error {
-	logger.Info("Starting persistent browser session with Chrome DevTools Protocol")
+	logger.Debug("Starting persistent browser session with Chrome DevTools Protocol")
 
 	// 首先尝试连接到已运行的 Chrome 实例
 	if err := b.tryConnectToExisting(); err == nil {
 		b.ready = true
-		logger.Info("Connected to existing Chrome instance")
+		logger.Debug("Connected to existing Chrome instance")
 		return nil
 	}
 
-	logger.Info("No existing Chrome found, starting new instance")
+	logger.Debug("No existing Chrome found, starting new instance")
 
 	// 查找 Chrome 可执行文件
 	chromePath, err := b.findChrome()
@@ -172,7 +172,7 @@ func (b *BrowserSessionManager) startDirectMode(timeout time.Duration) error {
 	}
 
 	b.ready = true
-	logger.Info("Browser session started successfully with Chrome DevTools Protocol")
+	logger.Debug("Browser session started successfully with Chrome DevTools Protocol")
 	return nil
 }
 
@@ -317,7 +317,7 @@ func (b *BrowserSessionManager) Stop() {
 	defer b.mu.Unlock()
 
 	if b.ready {
-		logger.Info("Stopping browser session")
+		logger.Debug("Stopping browser session")
 
 		// 停止 Relay 会话
 		if b.relaySession != nil {

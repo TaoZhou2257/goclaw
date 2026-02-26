@@ -48,7 +48,7 @@ func (s *SmartSearch) SmartSearchResult(ctx context.Context, params map[string]i
 	// Try web_search first
 	if s.webEnabled {
 		webResults, webErr := s.webTool.WebSearch(ctx, map[string]interface{}{"query": query})
-		logger.Info("Web search returned",
+		logger.Debug("Web search returned",
 			zap.String("query", query),
 			zap.Int("result_length", len(webResults)),
 			zap.Error(webErr),
@@ -63,7 +63,7 @@ func (s *SmartSearch) SmartSearchResult(ctx context.Context, params map[string]i
 			// Check if warning message (no API key) or Mock result
 			if !s.isWebSearchResultValid(webResults) {
 				// web search unavailable, fallback to browser
-				logger.Info("Web search result invalid, falling back to browser search",
+				logger.Debug("Web search result invalid, falling back to browser search",
 					zap.String("reason", s.getInvalidReason(webResults)),
 					zap.String("query", query))
 				return s.fallbackToCrawl4AI(ctx, query)
@@ -72,7 +72,7 @@ func (s *SmartSearch) SmartSearchResult(ctx context.Context, params map[string]i
 			return webResults, nil
 		} else {
 			// web search failed, fallback to browser
-			logger.Info("Web search failed, falling back to browser search",
+			logger.Debug("Web search failed, falling back to browser search",
 				zap.String("query", query),
 				zap.Error(webErr))
 			return s.fallbackToCrawl4AI(ctx, query)
@@ -80,7 +80,7 @@ func (s *SmartSearch) SmartSearchResult(ctx context.Context, params map[string]i
 	}
 
 	// web search not enabled, use browser directly
-	logger.Info("Web search not enabled, using browser search", zap.String("query", query))
+	logger.Debug("Web search not enabled, using browser search", zap.String("query", query))
 	return s.fallbackToCrawl4AI(ctx, query)
 }
 
@@ -135,7 +135,7 @@ func (s *SmartSearch) getInvalidReason(results string) string {
 
 // fallbackToCrawl4AI Use crawl4ai script to search Google
 func (s *SmartSearch) fallbackToCrawl4AI(ctx context.Context, query string) (string, error) {
-	logger.Info("Using crawl4ai for Google search", zap.String("query", query))
+	logger.Debug("Using crawl4ai for Google search", zap.String("query", query))
 
 	// Find the script path
 	scriptPath := s.findCrawl4AIScript()
@@ -143,7 +143,7 @@ func (s *SmartSearch) fallbackToCrawl4AI(ctx context.Context, query string) (str
 		return s.fallbackToBrowser(ctx, query)
 	}
 
-	logger.Info("Found crawl4ai script", zap.String("path", scriptPath))
+	logger.Debug("Found crawl4ai script", zap.String("path", scriptPath))
 
 	// Build command
 	var cmd *exec.Cmd
@@ -152,18 +152,18 @@ func (s *SmartSearch) fallbackToCrawl4AI(ctx context.Context, query string) (str
 		return fmt.Sprintf("Google Search for: %s\n\nPython 3 is required but not found. Please install Python 3 to use crawl4ai search.", query), nil
 	}
 
-	logger.Info("Using Python", zap.String("command", pythonCmd))
+	logger.Debug("Using Python", zap.String("command", pythonCmd))
 
 	maxResults := 10
 	cmdArgs := []string{scriptPath, query, fmt.Sprintf("%d", maxResults)}
 	cmd = exec.CommandContext(ctx, pythonCmd, cmdArgs...)
 
-	logger.Info("Executing crawl4ai script", zap.Strings("args", cmdArgs))
+	logger.Debug("Executing crawl4ai script", zap.Strings("args", cmdArgs))
 
 	// Set output to capture stdout
 	output, err := cmd.CombinedOutput()
 
-	logger.Info("Script output",
+	logger.Debug("Script output",
 		zap.Int("output_length", len(output)),
 		zap.Error(err))
 
@@ -298,7 +298,7 @@ func (s *SmartSearch) findPythonCommand() string {
 
 // fallbackToBrowser Fallback to original browser search method (CDP)
 func (s *SmartSearch) fallbackToBrowser(ctx context.Context, query string) (string, error) {
-	logger.Info("Falling back to CDP browser search", zap.String("query", query))
+	logger.Debug("Falling back to CDP browser search", zap.String("query", query))
 
 	// Check if python is available for crawl4ai
 	if s.findPythonCommand() == "" {
@@ -322,7 +322,7 @@ func (s *SmartSearch) fallbackToBrowser(ctx context.Context, query string) (stri
 	// Build Google search URL
 	googleURL := fmt.Sprintf("https://www.google.com/search?q=%s", urlEncode(query))
 
-	logger.Info("Navigating to Google search", zap.String("url", googleURL))
+	logger.Debug("Navigating to Google search", zap.String("url", googleURL))
 
 	// Navigate to Google search
 	nav, err := client.Page.Navigate(ctx, page.NewNavigateArgs(googleURL))
@@ -354,7 +354,7 @@ func (s *SmartSearch) fallbackToBrowser(ctx context.Context, query string) (stri
 
 	content := html.OuterHTML
 
-	logger.Info("Page content retrieved", zap.Int("content_length", len(content)), zap.String("frame_id", string(nav.FrameID)))
+	logger.Debug("Page content retrieved", zap.Int("content_length", len(content)), zap.String("frame_id", string(nav.FrameID)))
 
 	// Check if blocked by Google (verify page)
 	captchaKeywords := []string{
