@@ -357,13 +357,20 @@ func (c *FeishuChannel) removeTypingIndicator(messageID string) error {
 // sendCardMessage 发送卡片消息（使用 markdown 格式）
 func (c *FeishuChannel) sendCardMessage(msg *bus.OutboundMessage, receiveIDType string) error {
 	// 构建交互式卡片，使用 markdown 元素渲染内容
+	// 使用 schema 2.0 格式以支持完整的 markdown 渲染（包括 heading 和 code fence）
 	cardContent := fmt.Sprintf(`{
-		"elements": [
-			{
-				"tag": "markdown",
-				"content": %s
-			}
-		]
+		"schema": "2.0",
+		"config": {
+			"wide_screen_mode": true
+		},
+		"body": {
+			"elements": [
+				{
+					"tag": "markdown",
+					"content": %s
+				}
+			]
+		}
 	}`, jsonEscape(msg.Content))
 
 	req := larkim.NewCreateMessageReqBuilder().
