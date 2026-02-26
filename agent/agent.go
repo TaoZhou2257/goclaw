@@ -539,6 +539,21 @@ func defaultConvertToLLM(messages []AgentMessage) ([]providers.Message, error) {
 			continue
 		}
 
+		// Skip tool messages that don't have a matching tool_call_id
+		if msg.Role == RoleToolResult {
+			toolCallID, hasID := msg.Metadata["tool_call_id"].(string)
+			toolName, hasName := msg.Metadata["tool_name"].(string)
+			if !hasID || !hasName || toolCallID == "" || toolName == "" {
+				logger.Warn("Skipping tool message without tool_call_id or tool_name",
+					zap.String("role", string(msg.Role)),
+					zap.Bool("has_id", hasID),
+					zap.Bool("has_name", hasName),
+					zap.String("tool_call_id", toolCallID),
+					zap.String("tool_name", toolName))
+				continue
+			}
+		}
+
 		providerMsg := providers.Message{
 			Role: string(msg.Role),
 		}
