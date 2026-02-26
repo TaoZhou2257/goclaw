@@ -227,6 +227,13 @@ func (c *TelegramChannel) Send(msg *bus.OutboundMessage) error {
 		return fmt.Errorf("invalid chat id: %w", err)
 	}
 
+	// 发送 typing indicator，让用户知道 bot 正在处理请求
+	action := telegrambot.NewChatAction(chatID, telegrambot.ChatTyping)
+	if _, err := c.bot.Send(action); err != nil {
+		// 忽略 typing indicator 发送失败，不影响主消息
+		logger.Debug("Failed to send typing indicator", zap.Error(err))
+	}
+
 	// 创建消息
 	tgMsg := telegrambot.NewMessage(chatID, msg.Content)
 
@@ -252,4 +259,15 @@ func (c *TelegramChannel) Send(msg *bus.OutboundMessage) error {
 	)
 
 	return nil
+}
+
+// SendTypingIndicator 发送正在输入指示器
+func (c *TelegramChannel) SendTypingIndicator(chatID int64) error {
+	if !c.IsRunning() {
+		return fmt.Errorf("telegram channel is not running")
+	}
+
+	action := telegrambot.NewChatAction(chatID, telegrambot.ChatTyping)
+	_, err := c.bot.Send(action)
+	return err
 }
