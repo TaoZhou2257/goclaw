@@ -33,11 +33,12 @@ type AgentsConfig struct {
 
 // AgentDefaults Agent 默认配置
 type AgentDefaults struct {
-	Model         string           `mapstructure:"model" json:"model"`
-	MaxIterations int              `mapstructure:"max_iterations" json:"max_iterations"`
-	Temperature   float64          `mapstructure:"temperature" json:"temperature"`
-	MaxTokens     int              `mapstructure:"max_tokens" json:"max_tokens"`
-	Subagents     *SubagentsConfig `mapstructure:"subagents" json:"subagents"`
+	Model              string           `mapstructure:"model" json:"model"`
+	MaxIterations      int              `mapstructure:"max_iterations" json:"max_iterations"`
+	Temperature        float64          `mapstructure:"temperature" json:"temperature"`
+	MaxTokens          int              `mapstructure:"max_tokens" json:"max_tokens"`
+	MaxHistoryMessages int              `mapstructure:"max_history_messages" json:"max_history_messages"` // 最大历史消息数量
+	Subagents          *SubagentsConfig `mapstructure:"subagents" json:"subagents"`
 }
 
 // SubagentsConfig 分身配置

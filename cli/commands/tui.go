@@ -924,6 +924,10 @@ func sessionMessagesToAgentMessages(history []session.Message) []agent.AgentMess
 				agentMsg.Metadata = make(map[string]any)
 			}
 			agentMsg.Metadata["tool_call_id"] = sessMsg.ToolCallID
+			// Restore tool_name from metadata if exists
+			if toolName, ok := sessMsg.Metadata["tool_name"].(string); ok {
+				agentMsg.Metadata["tool_name"] = toolName
+			}
 		}
 
 		result = append(result, agentMsg)

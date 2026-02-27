@@ -351,16 +351,23 @@ func (m *AgentManager) createAgent(cfg config.AgentConfig, contextBuilder *Conte
 		maxIterations = 15
 	}
 
+	// 获取最大历史消息数
+	maxHistoryMessages := globalCfg.Agents.Defaults.MaxHistoryMessages
+	if maxHistoryMessages == 0 {
+		maxHistoryMessages = 100
+	}
+
 	// 创建 Agent
 	agent, err := NewAgent(&NewAgentConfig{
-		Bus:          m.bus,
-		Provider:     m.provider,
-		SessionMgr:   m.sessionMgr,
-		Tools:        m.tools,
-		Context:      contextBuilder,
-		Workspace:    workspace,
-		MaxIteration: maxIterations,
-		SkillsLoader: m.skillsLoader,
+		Bus:               m.bus,
+		Provider:          m.provider,
+		SessionMgr:        m.sessionMgr,
+		Tools:             m.tools,
+		Context:           contextBuilder,
+		Workspace:         workspace,
+		MaxIteration:      maxIterations,
+		MaxHistoryMessages: maxHistoryMessages,
+		SkillsLoader:      m.skillsLoader,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create agent %s: %w", cfg.ID, err)
@@ -489,7 +496,13 @@ func (m *AgentManager) handleInboundMessage(ctx context.Context, msg *bus.Inboun
 	orchestrator := agent.GetOrchestrator()
 
 	// 加载历史消息并添加当前消息
-	history := sess.GetHistory(-1) // -1 表示加载所有历史消息
+	// 使用配置的最大历史消息数限制，避免 token 超限
+	// 使用 GetHistorySafe 确保不会在工具调用中间截断消息
+	maxHistory := m.cfg.Agents.Defaults.MaxHistoryMessages
+	if maxHistory <= 0 {
+		maxHistory = 100 // 默认值
+	}
+	history := sess.GetHistorySafe(maxHistory)
 	historyAgentMsgs := sessionMessagesToAgentMessages(history)
 	allMessages := append(historyAgentMsgs, agentMsg)
 
@@ -609,6 +622,13 @@ func sessionMessagesToAgentMessages(sessMsgs []session.Message) []AgentMessage {
 					agentMsg.Metadata = make(map[string]any)
 				}
 				agentMsg.Metadata["tool_call_id"] = sessMsg.ToolCallID
+			}
+			// Restore tool_name from metadata if exists
+			if toolName, ok := sessMsg.Metadata["tool_name"].(string); ok {
+				if agentMsg.Metadata == nil {
+					agentMsg.Metadata = make(map[string]any)
+				}
+				agentMsg.Metadata["tool_name"] = toolName
 			}
 		}
 

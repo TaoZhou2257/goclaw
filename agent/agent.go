@@ -16,15 +16,16 @@ import (
 // Agent represents the main AI agent
 // New implementation inspired by pi-mono architecture
 type Agent struct {
-	orchestrator *Orchestrator
-	bus          *bus.MessageBus
-	provider     providers.Provider
-	sessionMgr   *session.Manager
-	tools        *ToolRegistry
-	context      *ContextBuilder
-	workspace    string
-	skillsLoader *SkillsLoader
-	helper       *AgentHelper
+	orchestrator        *Orchestrator
+	bus                 *bus.MessageBus
+	provider            providers.Provider
+	sessionMgr          *session.Manager
+	tools               *ToolRegistry
+	context             *ContextBuilder
+	workspace           string
+	skillsLoader        *SkillsLoader
+	helper              *AgentHelper
+	maxHistoryMessages  int // 最大历史消息数量
 
 	mu        sync.RWMutex
 	state     *AgentState
@@ -34,14 +35,15 @@ type Agent struct {
 
 // NewAgentConfig configures the agent
 type NewAgentConfig struct {
-	Bus          *bus.MessageBus
-	Provider     providers.Provider
-	SessionMgr   *session.Manager
-	Tools        *ToolRegistry
-	Context      *ContextBuilder
-	Workspace    string
-	MaxIteration int
-	SkillsLoader *SkillsLoader
+	Bus               *bus.MessageBus
+	Provider          providers.Provider
+	SessionMgr        *session.Manager
+	Tools             *ToolRegistry
+	Context           *ContextBuilder
+	Workspace         string
+	MaxIteration      int
+	MaxHistoryMessages int // 最大历史消息数量
+	SkillsLoader      *SkillsLoader
 }
 
 // NewAgent creates a new agent
@@ -52,6 +54,11 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 
 	if cfg.MaxIteration <= 0 {
 		cfg.MaxIteration = 15
+	}
+
+	// 设置默认的最大历史消息数
+	if cfg.MaxHistoryMessages <= 0 {
+		cfg.MaxHistoryMessages = 100
 	}
 
 	state := NewAgentState()
@@ -99,18 +106,19 @@ func NewAgent(cfg *NewAgentConfig) (*Agent, error) {
 	orchestrator := NewOrchestrator(loopConfig, state)
 
 	return &Agent{
-		orchestrator: orchestrator,
-		bus:          cfg.Bus,
-		provider:     cfg.Provider,
-		sessionMgr:   cfg.SessionMgr,
-		tools:        cfg.Tools,
-		context:      cfg.Context,
-		workspace:    cfg.Workspace,
-		skillsLoader: cfg.SkillsLoader,
-		helper:       NewAgentHelper(cfg.SessionMgr),
-		state:        state,
-		eventSubs:    make([]chan *Event, 0),
-		running:      false,
+		orchestrator:       orchestrator,
+		bus:                cfg.Bus,
+		provider:           cfg.Provider,
+		sessionMgr:         cfg.SessionMgr,
+		tools:              cfg.Tools,
+		context:            cfg.Context,
+		workspace:          cfg.Workspace,
+		skillsLoader:       cfg.SkillsLoader,
+		helper:             NewAgentHelper(cfg.SessionMgr),
+		maxHistoryMessages:  cfg.MaxHistoryMessages,
+		state:              state,
+		eventSubs:          make([]chan *Event, 0),
+		running:            false,
 	}, nil
 }
 
@@ -239,7 +247,9 @@ func (a *Agent) handleInboundMessage(ctx context.Context, msg *bus.InboundMessag
 	}
 
 	// Load history messages and add current message
-	history := sess.GetHistory(-1) // -1 means load all history
+	// Use maxHistoryMessages to limit history and avoid token limit exceeded errors
+	// Use GetHistorySafe to ensure we don't break tool call pairs
+	history := sess.GetHistorySafe(a.maxHistoryMessages)
 	historyAgentMsgs := sessionMessagesToAgentMessages(history)
 	allMessages := append(historyAgentMsgs, agentMsg)
 

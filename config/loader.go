@@ -67,6 +67,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("agents.defaults.max_iterations", 15)
 	v.SetDefault("agents.defaults.temperature", 0.7)
 	v.SetDefault("agents.defaults.max_tokens", 4096)
+	v.SetDefault("agents.defaults.max_history_messages", 100) // 默认保留最近100条消息
 
 	// Gateway 默认配置
 	v.SetDefault("gateway.host", "localhost")

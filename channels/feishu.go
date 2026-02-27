@@ -267,6 +267,28 @@ func (c *FeishuChannel) handleMessageReceived(ctx context.Context, event *larkim
 		chatType = *event.Event.Message.ChatType
 	}
 
+	messageType := "unknown"
+	if event.Event.Message.MessageType != nil {
+		messageType = *event.Event.Message.MessageType
+	}
+
+	messageContent := ""
+	if event.Event.Message.Content != nil {
+		messageContent = *event.Event.Message.Content
+	}
+
+	// 打印收到的消息关键信息
+	logger.Info("[Feishu] Received message",
+		zap.String("chat_id", chatID),
+		zap.String("chat_type", chatType),
+		zap.String("sender_id", senderID),
+		zap.String("sender_type", getStringPtr(event.Event.Sender.SenderType)),
+		zap.String("message_id", messageID),
+		zap.String("message_type", messageType),
+		zap.String("message_content", messageContent),
+		zap.Int("mentions_count", len(event.Event.Message.Mentions)),
+	)
+
 	// 检查发送者权限
 	if senderID != "" && !c.IsAllowed(senderID) {
 		return
