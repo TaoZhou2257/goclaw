@@ -29,8 +29,9 @@ var agentCmd = &cobra.Command{
 var (
 	agentMessage   string
 	agentTo        string
+	agentID        string
 	agentSessionID string
-	agentThinking  bool
+	agentThinking  string
 	agentVerbose   bool
 	agentChannel   string
 	agentLocal     bool
@@ -40,16 +41,17 @@ var (
 )
 
 func init() {
-	agentCmd.Flags().StringVar(&agentMessage, "message", "", "Message to send to the agent (required)")
-	agentCmd.Flags().StringVar(&agentTo, "to", "", "Target agent name")
-	agentCmd.Flags().StringVar(&agentSessionID, "session-id", "", "Session ID to use")
-	agentCmd.Flags().BoolVar(&agentThinking, "thinking", false, "Show thinking process")
-	agentCmd.Flags().BoolVar(&agentVerbose, "verbose", false, "Enable verbose output")
-	agentCmd.Flags().StringVar(&agentChannel, "channel", "cli", "Channel to use (cli, telegram, etc.)")
-	agentCmd.Flags().BoolVar(&agentLocal, "local", false, "Run in local mode without connecting to channels")
-	agentCmd.Flags().BoolVar(&agentDeliver, "deliver", false, "Deliver response through the channel")
-	agentCmd.Flags().BoolVar(&agentJSON, "json", false, "Output in JSON format")
-	agentCmd.Flags().IntVar(&agentTimeout, "timeout", 120, "Timeout in seconds")
+	agentCmd.Flags().StringVarP(&agentMessage, "message", "m", "", "Message to send to the agent")
+	agentCmd.Flags().StringVar(&agentTo, "to", "", "Recipient number in E.164 used to derive the session key")
+	agentCmd.Flags().StringVar(&agentID, "agent", "", "Agent id (overrides routing bindings)")
+	agentCmd.Flags().StringVar(&agentSessionID, "session-id", "", "Use an explicit session id")
+	agentCmd.Flags().StringVar(&agentThinking, "thinking", "off", "Thinking level: off | minimal | low | medium | high")
+	agentCmd.Flags().BoolVar(&agentVerbose, "verbose", false, "Persist agent verbose level for the session")
+	agentCmd.Flags().StringVar(&agentChannel, "channel", "", "Delivery channel: last|telegram|whatsapp|discord|irc|googlechat|slack|signal|imessage|feishu|nostr|msteams|mattermost|nextcloud-talk|matrix|bluebubbles|line|zalo|wecom|zalouser|synology-chat|tlon")
+	agentCmd.Flags().BoolVar(&agentLocal, "local", false, "Run the embedded agent locally (requires model provider API keys in your shell)")
+	agentCmd.Flags().BoolVar(&agentDeliver, "deliver", false, "Send the agent's reply back to the selected channel")
+	agentCmd.Flags().BoolVar(&agentJSON, "json", false, "Output result as JSON")
+	agentCmd.Flags().IntVar(&agentTimeout, "timeout", 600, "Override agent command timeout (seconds)")
 
 	_ = agentCmd.MarkFlagRequired("message")
 }
@@ -62,8 +64,14 @@ func runAgent(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	// Validate that either --agent or --session-id is specified
+	if agentID == "" && agentSessionID == "" {
+		fmt.Fprintf(os.Stderr, "Error: either --agent or --session-id is required\n")
+		os.Exit(1)
+	}
+
 	// Initialize logger if verbose or thinking mode is enabled
-	if agentVerbose || agentThinking {
+	if agentVerbose || agentThinking != "off" {
 		if err := logger.Init("debug", false); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 			os.Exit(1)
@@ -305,7 +313,7 @@ func runAgent(cmd *cobra.Command, args []string) {
 		}
 		fmt.Println(string(data))
 	} else {
-		if agentThinking {
+		if agentThinking != "off" {
 			fmt.Println("\n💡 Response:")
 		}
 		fmt.Println(response)
