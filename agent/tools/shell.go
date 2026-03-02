@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -97,8 +98,23 @@ func (t *ShellTool) execDirect(ctx context.Context, command string) (string, err
 		cmd.Dir = t.workingDir
 	}
 
+	// 设置进程组，确保能够杀死整个进程树
+	// 这解决了超时后子进程继续运行导致输出管道阻塞的问题
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// 获取输出管道
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		// 检查是否是超时错误
+		if cmdCtx.Err() == context.DeadlineExceeded {
+			// context 已超时，确保进程组被清理
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+			return "", fmt.Errorf("command timed out after %v", t.timeout)
+		}
 		return "", fmt.Errorf("command failed: %w, output: %s", err, string(output))
 	}
 
